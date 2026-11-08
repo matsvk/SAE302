@@ -12,7 +12,7 @@
   },
 
   "simulation": {
-    "periode_envoi": 2.0,
+    "periode_envoi": 3.0,
     "acceleration": 1.0,
     "temps_livraison": 120,
     "affichage": 10,

@@ -17,7 +17,7 @@ try:
             message = json.loads(data.decode("utf-8"))
             print(f"[REÇU de {addr[0]}] ID: {message.get('id')} | "
                   f"Lat: {message.get('lat')} | Lon: {message.get('lon')} | "
-                  f"Time: {message.get('timestamp')}")
+                  f"Time: {message.get('horodatage')}")
         except json.JSONDecodeError:
             print(f"[ERREUR] Message non-JSON reçu de {addr}")
 

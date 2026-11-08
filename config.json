@@ -1,0 +1,39 @@
+{
+  "serveur": {
+    "hote": "127.0.0.1",
+    "port": 5005
+  },
+
+  "osrm": {
+    "url": "https://router.project-osrm.org",
+    "timeout": 10,
+    "dossier_cache": "cache_trajets",
+    "ligne_droite_si_echec": true
+  },
+
+  "simulation": {
+    "periode_envoi": 2.0,
+    "acceleration": 1.0,
+    "temps_livraison": 120,
+    "affichage": 10,
+    "graine": null
+  },
+
+  "lieux": {
+    "Rungis":              [48.7590, 2.3510],
+    "Port de Gennevilliers": [48.9370, 2.2850],
+    "Roissy CDG":          [49.0097, 2.5479],
+    "Massy":               [48.7309, 2.2713],
+    "Garonor Aulnay":      [48.9350, 2.4860],
+    "Argenteuil":          [48.9472, 2.2467],
+    "IUT Villetaneuse":    [48.9568, 2.3417],
+    "Noisy-le-Grand":      [48.8486, 2.5527]
+  },
+
+  "camions": [
+    { "id": "CAM-01", "depart": "Rungis",           "arrivee": "Port de Gennevilliers", "vitesse_max_kmh": 80 },
+    { "id": "CAM-02", "depart": "Roissy CDG",       "arrivee": "Massy",                 "vitesse_max_kmh": 90, "decalage_depart": 30 },
+    { "id": "CAM-03", "depart": "Garonor Aulnay",   "arrivee": "Argenteuil",            "vitesse_max_kmh": 80, "decalage_depart": 60 },
+    { "id": "CAM-04", "depart": "IUT Villetaneuse", "arrivee": "Noisy-le-Grand",        "vitesse_max_kmh": 110, "boucle": false }
+  ]
+}

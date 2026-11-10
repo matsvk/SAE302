@@ -1,0 +1,22 @@
+{
+  "ecoute": {
+    "hote": "0.0.0.0",
+    "port": 5005
+  },
+
+  "camions_autorises": ["CAM-01", "CAM-02", "CAM-03", "CAM-04"],
+
+  "reponses_erreur": true,
+  "max_reponses_par_seconde": 5,
+  "delai_silence": 30,
+  "intervalle_stats": 60,
+  "taille_file": 10000,
+  "vitesse_max_plausible": 200,
+
+  "logs": {
+    "fichier": "logs/serveur.log",
+    "niveau": "INFO",
+    "taille_max_mo": 5,
+    "nb_fichiers": 3
+  }
+}

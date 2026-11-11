@@ -2,11 +2,13 @@
 serveur_udp.py - Phase 2 : serveur de réception des positions des camions.
 
 P1 : recevoir les messages UDP et lire le JSON
+P2 : ne pas croire aveuglément ce qui arrive (validation, camions autorisés,
+     cohérence des positions, codes d'erreur renvoyés à l'expéditeur)
 P3 : gérer plusieurs camions en même temps et ajouter des logs
 
 Fonctionnement :
   - un thread "reception" lit les datagrammes UDP et les met dans une file ;
-  - un thread "traitement" lit le JSON et met à jour l'état de chaque camion ;
+  - un thread "traitement" vérifie chaque message et met à jour l'état de chaque camion ;
   - un thread "surveillance" repère les camions qui n'envoient plus rien
     et affiche un bilan régulièrement.
 Comme ça, la réception n'est jamais bloquée par le traitement, même avec
@@ -15,6 +17,29 @@ beaucoup de camions qui envoient en même temps.
 Les réglages sont lus dans serveur_config.json (valeurs par défaut si le
 fichier n'existe pas). Tous les événements sont écrits dans la console et
 dans le fichier de logs.
+
+Vérifications P2, dans l'ordre (le premier problème trouvé arrête le traitement) :
+  1. taille du datagramme (512 octets max)                  -> code "trop_long"
+  2. UTF-8 + JSON lisible                                    -> code "json_illisible"
+  3. format du message : envoi.valider(), le même code que
+     les camions (champs, types, bornes, état, horodatage)   -> code "format_invalide"
+  4. camion présent dans "camions_autorises" (liste vide =
+     tous les camions acceptés)                              -> code "non_autorise"
+  5. numéro de séquence : doublon ou message en retard -> ignoré (sans réponse :
+     c'est un comportement normal d'UDP, pas une attaque)
+  6. cohérence avec la position précédente : distance / temps écoulé
+     (d'après les horodatages) > "vitesse_max_plausible"   -> code "position_incoherente"
+
+Si "reponses_erreur" vaut true, le serveur renvoie à l'expéditeur un petit
+datagramme JSON qui explique le refus, par exemple :
+    {"v":1,"type":"erreur","code":"format_invalide","detail":"champ manquant : lat","seq":42}
+Ces réponses sont limitées à "max_reponses_par_seconde" (tous expéditeurs
+confondus) : sinon quelqu'un qui usurpe l'adresse IP d'une victime pourrait se
+servir du serveur pour l'inonder de réponses.
+
+Limite connue : sans clé secrète partagée (signature HMAC par exemple), rien
+n'empêche quelqu'un d'envoyer un message bien formé, cohérent et au nom d'un
+camion autorisé. Ces vérifications rendent la falsification difficile, pas impossible.
 
 Usage :
     python serveur_udp.py
@@ -31,9 +56,15 @@ import socket
 import sys
 import threading
 import time
+from collections import Counter
+from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 
-TAILLE_MAX = 2048          # taille max d'un datagramme lu (octets)
+from envoi import FORMAT_ID, TAILLE_MAX as TAILLE_MAX_MESSAGE, ErreurMessage, valider
+from mouvement import haversine
+
+TAILLE_LECTURE = 2048      # on lit plus que la taille max pour repérer les messages trop longs
+MARGE_GPS = 50.0           # m : en dessous, un écart de position n'est jamais jugé incohérent
 
 # Valeurs utilisées si une clé est absente de serveur_config.json
 DEFAUTS = {
@@ -43,12 +74,11 @@ DEFAUTS = {
     "taille_file": 10000,          # messages max en attente de traitement
     "logs": {"fichier": "logs/serveur.log", "niveau": "INFO",
              "taille_max_mo": 5, "nb_fichiers": 3},
-    # Clés réservées à la phase 2 P2 (validation et codes d'erreur) :
-    # lues et vérifiées ici, mais pas encore utilisées par le serveur.
-    "camions_autorises": [],
-    "reponses_erreur": True,
-    "max_reponses_par_seconde": 5,
-    "vitesse_max_plausible": 200,
+    # P2 : validation et codes d'erreur
+    "camions_autorises": [],       # liste vide = tous les camions acceptés
+    "reponses_erreur": True,       # renvoyer un datagramme d'erreur à l'expéditeur
+    "max_reponses_par_seconde": 5, # 0 = jamais de réponse
+    "vitesse_max_plausible": 200,  # km/h, entre deux positions successives
 }
 
 log = logging.getLogger("serveur")
@@ -110,6 +140,9 @@ def charger_config(chemin):
         raise ErreurConfig("« logs.niveau » doit valoir DEBUG, INFO, WARNING ou ERROR")
     if not isinstance(resultat["camions_autorises"], list):
         raise ErreurConfig("« camions_autorises » doit être une liste")
+    for ident in resultat["camions_autorises"]:
+        if not isinstance(ident, str) or not FORMAT_ID.fullmatch(ident):
+            raise ErreurConfig(f"« camions_autorises » : identifiant invalide {ident!r}")
     if not isinstance(resultat["reponses_erreur"], bool):
         raise ErreurConfig("« reponses_erreur » doit valoir true ou false")
     _nombre(resultat["max_reponses_par_seconde"], "max_reponses_par_seconde", 0, 1000)
@@ -155,15 +188,18 @@ class Camion:
         self.perdus = 0                      # messages jamais arrivés (trous dans seq)
         self.ignores = 0                     # doublons ou messages arrivés en retard
         self.derniere_reception = time.monotonic()
-        self.derniere_position = None        # (lat, lon, horodatage)
+        self.derniere_position = None        # (lat, lon, instant) du dernier message accepté
         self.silencieux = False
+        self.rejetes = 0                     # messages refusés pour position incohérente
 
 
 camions = {}                    # id du camion -> Camion
 verrou = threading.Lock()       # protège "camions" et "stats" (utilisés par plusieurs threads)
 file_messages = None            # file d'attente des datagrammes, créée dans main()
 arret = threading.Event()       # mis à True pour arrêter tous les threads
-stats = {"recus": 0, "non_json": 0, "sans_id": 0, "file_pleine": 0}
+stats = {"recus": 0, "acceptes": 0, "file_pleine": 0, "reponses": 0, "reponses_limitees": 0}
+rejets = Counter()              # code d'erreur -> nombre de messages refusés
+limiteur = None                 # Limiteur des réponses d'erreur, créé dans main()
 
 
 # ---------------------------------------------------------------------------
@@ -173,12 +209,16 @@ stats = {"recus": 0, "non_json": 0, "sans_id": 0, "file_pleine": 0}
 def reception(sock):
     while not arret.is_set():
         try:
-            data, addr = sock.recvfrom(TAILLE_MAX)
+            data, addr = sock.recvfrom(TAILLE_LECTURE)
         except socket.timeout:
             continue                 # permet de vérifier "arret" chaque seconde
         except OSError as e:
+            # sous Windows, un datagramme plus grand que TAILLE_LECTURE lève une
+            # erreur au lieu d'être tronqué : on la note et on continue
             if not arret.is_set():
-                log.error("erreur de réception : %s", e)
+                log.warning("REJET trop_long : erreur de réception (%s)", e)
+                with verrou:
+                    rejets["trop_long"] += 1
             continue
         try:
             file_messages.put_nowait((data, addr))
@@ -193,17 +233,17 @@ def reception(sock):
 
 
 # ---------------------------------------------------------------------------
-# Thread 2 : lecture du JSON et suivi des camions (P1 + P3)
+# Thread 2 : vérification des messages et suivi des camions (P1 + P2 + P3)
 # ---------------------------------------------------------------------------
 
-def traitement():
+def traitement(sock):
     while not arret.is_set():
         try:
             data, addr = file_messages.get(timeout=1)
         except queue.Empty:
             continue
         try:
-            traiter_message(data, addr)
+            traiter_message(data, addr, sock)
         except Exception:
             # un message bizarre ne doit jamais arrêter le serveur
             log.exception("erreur pendant le traitement d'un message de %s", addr)
@@ -211,71 +251,159 @@ def traitement():
             file_messages.task_done()
 
 
-def traiter_message(data, addr):
+class Limiteur:
+    """Seau à jetons : au plus `par_seconde` réponses par seconde en moyenne."""
+
+    def __init__(self, par_seconde):
+        self.par_seconde = par_seconde
+        self.jetons = float(par_seconde)
+        self.dernier = time.monotonic()
+        self._verrou = threading.Lock()
+
+    def autoriser(self):
+        if self.par_seconde <= 0:
+            return False
+        with self._verrou:
+            maintenant = time.monotonic()
+            self.jetons = min(self.par_seconde, self.jetons + (maintenant - self.dernier) * self.par_seconde)
+            self.dernier = maintenant
+            if self.jetons >= 1:
+                self.jetons -= 1
+                return True
+            return False
+
+
+def propre(texte, longueur=150):
+    """Texte venu du réseau -> texte sans retour à la ligne ni caractère de contrôle,
+    pour qu'un message piégé ne puisse pas fabriquer de fausses lignes dans les logs."""
+    texte = "".join(c if c.isprintable() else "?" for c in str(texte))
+    return texte if len(texte) <= longueur else texte[:longueur - 3] + "..."
+
+
+def rejeter(sock, addr, code, detail, seq=None):
+    """Refuse un message : log, statistiques et (si autorisé) réponse à l'expéditeur."""
+    detail = propre(detail)
+    with verrou:
+        rejets[code] += 1
+    log.warning("REJET %s de %s:%d : %s", code, addr[0], addr[1], detail)
+    if not conf["reponses_erreur"]:
+        return
+    if not limiteur.autoriser():
+        with verrou:
+            stats["reponses_limitees"] += 1
+        return
+    reponse = {"v": 1, "type": "erreur", "code": code, "detail": detail, "seq": seq}
+    try:
+        sock.sendto(json.dumps(reponse, ensure_ascii=False).encode("utf-8"), addr)
+        with verrou:
+            stats["reponses"] += 1
+    except OSError as e:
+        log.debug("réponse d'erreur non envoyée à %s:%d : %s", addr[0], addr[1], e)
+
+
+def lire_horodatage(texte):
+    """ISO 8601 -> datetime UTC. Sans fuseau indiqué, on considère que c'est de l'UTC
+    (sinon comparer une date avec et une date sans fuseau ferait planter)."""
+    d = datetime.fromisoformat(texte.replace("Z", "+00:00"))
+    return d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d
+
+
+def traiter_message(data, addr, sock):
     with verrou:
         stats["recus"] += 1
 
-    # --- lecture du JSON (P1)
+    # --- 1. taille
+    if len(data) > TAILLE_MAX_MESSAGE:
+        return rejeter(sock, addr, "trop_long", f"{len(data)} octets (max {TAILLE_MAX_MESSAGE})")
+
+    # --- 2. lecture du JSON (P1)
     try:
         message = json.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        with verrou:
-            stats["non_json"] += 1
-        log.warning("message non-JSON reçu de %s:%d (%d octets)", addr[0], addr[1], len(data))
-        return
-    if not isinstance(message, dict) or "id" not in message:
-        with verrou:
-            stats["sans_id"] += 1
-        log.warning("message sans identifiant de camion reçu de %s:%d", addr[0], addr[1])
-        return
-    # La vérification complète des champs, des camions autorisés et les codes
-    # d'erreur sont faits en P2 (clés camions_autorises, reponses_erreur...).
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+        return rejeter(sock, addr, "json_illisible", f"datagramme de {len(data)} octets")
 
-    id_camion = str(message["id"])
-    seq = message.get("seq")
+    seq = message.get("seq") if isinstance(message, dict) else None
+    if isinstance(seq, bool) or not isinstance(seq, int):
+        seq = None                   # renvoyé dans la réponse d'erreur seulement s'il est valide
+
+    # --- 3. format complet du message (même fonction que côté camion)
+    try:
+        valider(message)
+    except ErreurMessage as e:
+        return rejeter(sock, addr, "format_invalide", e, seq)
+
+    # --- 4. camion autorisé ?
+    id_camion = message["id"]
+    autorises = conf["camions_autorises"]
+    if autorises and id_camion not in autorises:
+        return rejeter(sock, addr, "non_autorise", f"camion {id_camion} absent de camions_autorises", seq)
+
+    lat, lon = message["lat"], message["lon"]
+    instant = lire_horodatage(message["horodatage"])
+    refus = None
 
     with verrou:
-        # --- nouveau camion
         camion = camions.get(id_camion)
-        if camion is None:
-            camion = Camion(id_camion, addr)
-            camions[id_camion] = camion
-            log.info("[%s] nouveau camion depuis %s:%d", id_camion, addr[0], addr[1])
-        elif camion.adresse != addr:
-            log.info("[%s] change d'adresse : %s:%d -> %s:%d", id_camion,
-                     camion.adresse[0], camion.adresse[1], addr[0], addr[1])
-            camion.adresse = addr
+        redemarrage = False
 
-        # --- camion qui revient après un silence
-        camion.derniere_reception = time.monotonic()
-        if camion.silencieux:
-            camion.silencieux = False
-            log.info("[%s] de nouveau en ligne", id_camion)
-
-        # --- numéro de séquence : UDP peut perdre, dupliquer ou désordonner
-        if isinstance(seq, int) and camion.dernier_seq is not None:
+        # --- 5. numéro de séquence : UDP peut perdre, dupliquer ou désordonner
+        if camion is not None and camion.dernier_seq is not None:
             attendu = camion.dernier_seq + 1
             if seq == 0 and camion.dernier_seq > 0:
-                log.info("[%s] seq repart à 0 : camion redémarré", id_camion)
+                redemarrage = True
             elif seq < attendu:
                 camion.ignores += 1
                 log.warning("[%s] message ignoré (seq %d déjà reçu ou en retard, dernier = %d)",
                             id_camion, seq, camion.dernier_seq)
                 return
-            elif seq > attendu:
-                manquants = seq - attendu
+
+        # --- 6. cohérence avec la dernière position acceptée. On utilise les
+        # horodatages des messages (pas l'heure de réception) : ça reste juste
+        # quand le simulateur est accéléré. Pas de contrôle après un redémarrage.
+        if camion is not None and camion.derniere_position is not None and not redemarrage:
+            lat0, lon0, instant0 = camion.derniere_position
+            distance = haversine((lat0, lon0), (lat, lon))
+            duree = (instant - instant0).total_seconds()
+            v_max = conf["vitesse_max_plausible"] / 3.6
+            if distance > MARGE_GPS and (duree <= 0 or distance / duree > v_max):
+                camion.rejetes += 1
+                vitesse = "infinie" if duree <= 0 else f"{distance / duree * 3.6:.0f} km/h"
+                refus = (f"{distance / 1000:.1f} km en {duree:.1f} s ({vitesse}, "
+                         f"max {conf['vitesse_max_plausible']} km/h)")
+
+        if refus is None:
+            # --- message accepté : mise à jour de l'état du camion
+            if camion is None:
+                camion = Camion(id_camion, addr)
+                camions[id_camion] = camion
+                log.info("[%s] nouveau camion depuis %s:%d", id_camion, addr[0], addr[1])
+            elif camion.adresse != addr:
+                log.info("[%s] change d'adresse : %s:%d -> %s:%d", id_camion,
+                         camion.adresse[0], camion.adresse[1], addr[0], addr[1])
+                camion.adresse = addr
+            if redemarrage:
+                log.info("[%s] seq repart à 0 : camion redémarré", id_camion)
+            elif camion.dernier_seq is not None and seq > camion.dernier_seq + 1:
+                manquants = seq - camion.dernier_seq - 1
                 camion.perdus += manquants
                 log.warning("[%s] %d message(s) perdu(s) (seq %d à %d)",
-                            id_camion, manquants, attendu, seq - 1)
-        if isinstance(seq, int):
+                            id_camion, manquants, camion.dernier_seq + 1, seq - 1)
+
             camion.dernier_seq = seq
+            camion.derniere_reception = time.monotonic()
+            if camion.silencieux:
+                camion.silencieux = False
+                log.info("[%s] de nouveau en ligne", id_camion)
+            camion.nb_messages += 1
+            camion.derniere_position = (lat, lon, instant)
+            stats["acceptes"] += 1
 
-        # --- enregistrement de la position
-        camion.nb_messages += 1
-        camion.derniere_position = (message.get("lat"), message.get("lon"), message.get("horodatage"))
+    # (hors du verrou : rejeter() le reprend)
+    if refus is not None:
+        return rejeter(sock, addr, "position_incoherente", f"[{id_camion}] {refus}", seq)
 
-    log.info("[%s] seq=%s lat=%s lon=%s vitesse=%s etat=%s", id_camion, seq,
-             message.get("lat"), message.get("lon"), message.get("vitesse"), message.get("etat"))
+    log.info("[%s] seq=%d lat=%.6f lon=%.6f vitesse=%.1f etat=%s", id_camion, seq,
+             lat, lon, message["vitesse"], message["etat"])
 
 
 # ---------------------------------------------------------------------------
@@ -301,12 +429,16 @@ def surveillance():
 def bilan():
     with verrou:
         actifs = sum(1 for c in camions.values() if not c.silencieux)
-        log.info("bilan : %d message(s) reçu(s), %d non-JSON, %d sans id, %d abandonné(s) (file pleine), "
-                 "%d camion(s) dont %d actif(s)", stats["recus"], stats["non_json"], stats["sans_id"],
-                 stats["file_pleine"], len(camions), actifs)
+        log.info("bilan : %d message(s) reçu(s), %d accepté(s), %d rejeté(s), %d abandonné(s) (file pleine), "
+                 "%d réponse(s) d'erreur (+%d limitée(s)), %d camion(s) dont %d actif(s)",
+                 stats["recus"], stats["acceptes"], sum(rejets.values()), stats["file_pleine"],
+                 stats["reponses"], stats["reponses_limitees"], len(camions), actifs)
+        if rejets:
+            log.info("  rejets par code : %s",
+                     ", ".join(f"{code}={n}" for code, n in sorted(rejets.items())))
         for c in sorted(camions.values(), key=lambda c: c.id):
-            log.info("  %-10s %5d msg  %3d perdu(s)  %3d ignoré(s)  %s",
-                     c.id, c.nb_messages, c.perdus, c.ignores,
+            log.info("  %-10s %5d msg  %3d perdu(s)  %3d ignoré(s)  %3d incohérent(s)  %s",
+                     c.id, c.nb_messages, c.perdus, c.ignores, c.rejetes,
                      "silencieux" if c.silencieux else "actif")
 
 
@@ -315,7 +447,7 @@ def bilan():
 # ---------------------------------------------------------------------------
 
 def main():
-    global conf, file_messages
+    global conf, file_messages, limiteur
 
     parser = argparse.ArgumentParser(description="Serveur UDP du suivi de flotte (SAÉ 3.02)")
     parser.add_argument("-c", "--config", default="serveur_config.json",
@@ -329,6 +461,7 @@ def main():
         return 2
     configurer_logs(conf["logs"])
     file_messages = queue.Queue(maxsize=int(conf["taille_file"]))
+    limiteur = Limiteur(conf["max_reponses_par_seconde"])
 
     hote, port = conf["ecoute"]["hote"], int(conf["ecoute"]["port"])
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -341,7 +474,7 @@ def main():
 
     threads = [
         threading.Thread(target=reception, args=(sock,), name="reception", daemon=True),
-        threading.Thread(target=traitement, name="traitement", daemon=True),
+        threading.Thread(target=traitement, args=(sock,), name="traitement", daemon=True),
         threading.Thread(target=surveillance, name="surveillance", daemon=True),
     ]
     for t in threads:
@@ -349,6 +482,11 @@ def main():
 
     log.info("serveur UDP démarré sur %s:%d (config : %s, logs : %s)",
              hote, port, args.config, conf["logs"]["fichier"])
+    if conf["camions_autorises"]:
+        log.info("%d camion(s) autorisé(s) : %s", len(conf["camions_autorises"]),
+                 ", ".join(conf["camions_autorises"]))
+    else:
+        log.warning("camions_autorises est vide : tous les identifiants sont acceptés")
 
     try:
         while all(t.is_alive() for t in threads):

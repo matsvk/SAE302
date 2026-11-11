@@ -116,7 +116,7 @@ def charger_config(chemin):
             raise ErreurConfig(f"camion n°{n} : doit être un objet")
         ident = c.get("id")
         ctx = f"camion {ident or 'n°' + str(n)}"
-        if not isinstance(ident, str) or not FORMAT_ID.match(ident):
+        if not isinstance(ident, str) or not FORMAT_ID.fullmatch(ident):
             raise ErreurConfig(f"{ctx} : id obligatoire (lettres, chiffres, - et _, 32 caractères max)")
         if ident in ids:
             raise ErreurConfig(f"{ctx} : id déjà utilisé par un autre camion")

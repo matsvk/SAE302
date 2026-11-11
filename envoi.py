@@ -101,7 +101,8 @@ def valider(msg):
         raise ErreurMessage(f"version {msg['v']} non gérée")
     if msg["type"] != "position":
         raise ErreurMessage(f"type de message inconnu : {msg['type']}")
-    if not FORMAT_ID.match(msg["id"]):
+    # fullmatch et pas match : avec match, "CAM-01\n" serait accepté ($ tolère un \n final)
+    if not FORMAT_ID.fullmatch(msg["id"]):
         raise ErreurMessage("identifiant de camion invalide")
     if msg["seq"] < 0:
         raise ErreurMessage("numéro de séquence négatif")

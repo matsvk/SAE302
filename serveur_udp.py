@@ -5,12 +5,17 @@ P1 : recevoir les messages UDP et lire le JSON
 P2 : ne pas croire aveuglément ce qui arrive (validation, camions autorisés,
      cohérence des positions, codes d'erreur renvoyés à l'expéditeur)
 P3 : gérer plusieurs camions en même temps et ajouter des logs
+Phase 3 P3 : enregistrer les positions acceptées dans MariaDB (base.py), si
+     "bdd.active" vaut true dans serveur_config.json
 
 Fonctionnement :
   - un thread "reception" lit les datagrammes UDP et les met dans une file ;
   - un thread "traitement" vérifie chaque message et met à jour l'état de chaque camion ;
   - un thread "surveillance" repère les camions qui n'envoient plus rien
-    et affiche un bilan régulièrement.
+    et affiche un bilan régulièrement ;
+  - (phase 3) un thread "bdd" écrit les positions acceptées dans MariaDB par
+    paquets. Si la base est lente ou en panne, seul ce thread attend : les
+    positions sont gardées en mémoire et écrites dès que la base revient.
 Comme ça, la réception n'est jamais bloquée par le traitement, même avec
 beaucoup de camions qui envoient en même temps.
 
@@ -23,7 +28,8 @@ Vérifications P2, dans l'ordre (le premier problème trouvé arrête le traitem
   2. UTF-8 + JSON lisible                                    -> code "json_illisible"
   3. format du message : envoi.valider(), le même code que
      les camions (champs, types, bornes, état, horodatage)   -> code "format_invalide"
-  4. camion présent dans "camions_autorises" (liste vide =
+  4. camion autorisé : table "camions" de la base si elle est
+     activée, sinon liste "camions_autorises" (liste vide =
      tous les camions acceptés)                              -> code "non_autorise"
   5. numéro de séquence : doublon ou message en retard -> ignoré (sans réponse :
      c'est un comportement normal d'UDP, pas une attaque)
@@ -52,6 +58,7 @@ import json
 import logging
 import os
 import queue
+import signal
 import socket
 import sys
 import threading
@@ -60,6 +67,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 
+from base import DEFAUTS_BDD, EcrivainPositions, ErreurBase, charger_camions
 from envoi import FORMAT_ID, TAILLE_MAX as TAILLE_MAX_MESSAGE, ErreurMessage, valider
 from mouvement import haversine
 
@@ -79,6 +87,8 @@ DEFAUTS = {
     "reponses_erreur": True,       # renvoyer un datagramme d'erreur à l'expéditeur
     "max_reponses_par_seconde": 5, # 0 = jamais de réponse
     "vitesse_max_plausible": 200,  # km/h, entre deux positions successives
+    # Phase 3 : base de données (voir base.py). "active": false = comme en phase 2
+    "bdd": DEFAUTS_BDD,
 }
 
 log = logging.getLogger("serveur")
@@ -147,6 +157,16 @@ def charger_config(chemin):
         raise ErreurConfig("« reponses_erreur » doit valoir true ou false")
     _nombre(resultat["max_reponses_par_seconde"], "max_reponses_par_seconde", 0, 1000)
     _nombre(resultat["vitesse_max_plausible"], "vitesse_max_plausible", 1, 500)
+    bdd = resultat["bdd"]
+    if not isinstance(bdd["active"], bool):
+        raise ErreurConfig("« bdd.active » doit valoir true ou false")
+    _nombre(bdd["port"], "bdd.port", 1, 65535)
+    _nombre(bdd["taille_tampon"], "bdd.taille_tampon", 100, 10_000_000)
+    _nombre(bdd["taille_paquet"], "bdd.taille_paquet", 1, 10000)
+    _nombre(bdd["rafraichir_camions"], "bdd.rafraichir_camions", 0, 86400)
+    for cle in ("hote", "base", "utilisateur", "fichier_secret"):
+        if not isinstance(bdd[cle], str) or not bdd[cle]:
+            raise ErreurConfig(f"« bdd.{cle} » doit être un texte non vide")
     return resultat
 
 
@@ -200,6 +220,42 @@ arret = threading.Event()       # mis à True pour arrêter tous les threads
 stats = {"recus": 0, "acceptes": 0, "file_pleine": 0, "reponses": 0, "reponses_limitees": 0}
 rejets = Counter()              # code d'erreur -> nombre de messages refusés
 limiteur = None                 # Limiteur des réponses d'erreur, créé dans main()
+ecrivain = None                 # (phase 3) EcrivainPositions, créé dans main() si la base est active
+autorises_bdd = None            # (phase 3) camions actifs lus dans la table camions, None = pas lue
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 : liste des camions autorisés lue dans la base
+# ---------------------------------------------------------------------------
+
+def rafraichir_camions(premiere_fois=False):
+    """Relit la table camions. Un camion ajouté ou désactivé (actif = FALSE) est
+    pris en compte sans redémarrer le serveur. Si la base ne répond pas, on garde
+    la liste précédente (ou, au démarrage, celle de serveur_config.json)."""
+    global autorises_bdd
+    try:
+        ids = charger_camions(conf["bdd"])
+    except ErreurBase as e:
+        if premiere_fois:
+            log.error("base inaccessible au démarrage (%s) : liste « camions_autorises » "
+                      "de serveur_config.json utilisée en attendant", e)
+        else:
+            log.warning("relecture de la table camions impossible (%s), ancienne liste gardée", e)
+        return
+    if not ids:
+        log.warning("la table camions ne contient aucun camion actif : tous les messages seront refusés")
+    if autorises_bdd is not None and ids != autorises_bdd:
+        log.info("camions autorisés mis à jour depuis la base : %s", ", ".join(sorted(ids)) or "aucun")
+    autorises_bdd = ids          # remplacement d'un seul coup : pas besoin de verrou
+    if premiere_fois:
+        log.info("%d camion(s) autorisé(s) lu(s) dans la base : %s", len(ids), ", ".join(sorted(ids)))
+
+
+def camion_autorise(id_camion):
+    if autorises_bdd is not None:          # base active et lue au moins une fois
+        return id_camion in autorises_bdd
+    liste = conf["camions_autorises"]
+    return not liste or id_camion in liste
 
 
 # ---------------------------------------------------------------------------
@@ -334,9 +390,9 @@ def traiter_message(data, addr, sock):
 
     # --- 4. camion autorisé ?
     id_camion = message["id"]
-    autorises = conf["camions_autorises"]
-    if autorises and id_camion not in autorises:
-        return rejeter(sock, addr, "non_autorise", f"camion {id_camion} absent de camions_autorises", seq)
+    if not camion_autorise(id_camion):
+        source = "de la table camions" if autorises_bdd is not None else "de camions_autorises"
+        return rejeter(sock, addr, "non_autorise", f"camion {id_camion} absent {source}", seq)
 
     lat, lon = message["lat"], message["lon"]
     instant = lire_horodatage(message["horodatage"])
@@ -402,6 +458,11 @@ def traiter_message(data, addr, sock):
     if refus is not None:
         return rejeter(sock, addr, "position_incoherente", f"[{id_camion}] {refus}", seq)
 
+    # Phase 3 : enregistrement en base. ajouter() ne bloque jamais : la position est
+    # mise dans un tampon, et c'est le thread "bdd" qui l'écrit dans MariaDB.
+    if ecrivain is not None:
+        ecrivain.ajouter(message, addr[0], time.time())
+
     log.info("[%s] seq=%d lat=%.6f lon=%.6f vitesse=%.1f etat=%s", id_camion, seq,
              lat, lon, message["vitesse"], message["etat"])
 
@@ -414,8 +475,13 @@ def surveillance():
     delai = conf["delai_silence"]
     intervalle = conf["intervalle_stats"]
     prochain_bilan = time.monotonic() + intervalle
+    periode_bdd = conf["bdd"]["rafraichir_camions"] if ecrivain is not None else 0
+    prochaine_lecture = time.monotonic() + periode_bdd
     while not arret.wait(1):
         maintenant = time.monotonic()
+        if periode_bdd and maintenant >= prochaine_lecture:
+            rafraichir_camions()
+            prochaine_lecture += periode_bdd
         with verrou:
             for camion in camions.values():
                 if not camion.silencieux and maintenant - camion.derniere_reception > delai:
@@ -436,6 +502,12 @@ def bilan():
         if rejets:
             log.info("  rejets par code : %s",
                      ", ".join(f"{code}={n}" for code, n in sorted(rejets.items())))
+        if ecrivain is not None:
+            e = ecrivain.stats
+            etat_bdd = {True: "OK", False: "INDISPONIBLE", None: "pas encore utilisée"}[ecrivain.base_ok]
+            log.info("  base : %s, %d position(s) écrite(s), %d en attente, %d doublon(s) ignoré(s), "
+                     "%d refusée(s), %d abandonnée(s), %d coupure(s)", etat_bdd, e["ecrites"],
+                     ecrivain.en_attente, e["doublons"], e["rejetees"], e["abandonnees"], e["coupures"])
         for c in sorted(camions.values(), key=lambda c: c.id):
             log.info("  %-10s %5d msg  %3d perdu(s)  %3d ignoré(s)  %3d incohérent(s)  %s",
                      c.id, c.nb_messages, c.perdus, c.ignores, c.rejetes,
@@ -447,7 +519,7 @@ def bilan():
 # ---------------------------------------------------------------------------
 
 def main():
-    global conf, file_messages, limiteur
+    global conf, file_messages, limiteur, ecrivain
 
     parser = argparse.ArgumentParser(description="Serveur UDP du suivi de flotte (SAÉ 3.02)")
     parser.add_argument("-c", "--config", default="serveur_config.json",
@@ -472,6 +544,20 @@ def main():
         return 1
     sock.settimeout(1)
 
+    # Phase 3 : connexion à MariaDB (si activée). Si la base est en panne au
+    # démarrage, le serveur démarre quand même et l'écrivain réessaiera.
+    if conf["bdd"]["active"]:
+        try:
+            ecrivain = EcrivainPositions(conf["bdd"])
+        except ErreurBase as e:          # ex. PyMySQL pas installé
+            log.error("%s, ou mettre « active » à false dans la section bdd", e)
+            sock.close()
+            return 1
+        rafraichir_camions(premiere_fois=True)
+        ecrivain.start()
+    else:
+        log.info("base de données désactivée (bdd.active = false) : positions non enregistrées")
+
     threads = [
         threading.Thread(target=reception, args=(sock,), name="reception", daemon=True),
         threading.Thread(target=traitement, args=(sock,), name="traitement", daemon=True),
@@ -482,22 +568,33 @@ def main():
 
     log.info("serveur UDP démarré sur %s:%d (config : %s, logs : %s)",
              hote, port, args.config, conf["logs"]["fichier"])
-    if conf["camions_autorises"]:
+    if autorises_bdd is not None:
+        pass                             # liste déjà affichée par rafraichir_camions()
+    elif conf["camions_autorises"]:
         log.info("%d camion(s) autorisé(s) : %s", len(conf["camions_autorises"]),
                  ", ".join(conf["camions_autorises"]))
     else:
         log.warning("camions_autorises est vide : tous les identifiants sont acceptés")
 
+    # kill / arrêt du système (SIGTERM) : même arrêt propre que Ctrl+C, pour que
+    # les positions encore en mémoire soient écrites dans la base avant de quitter
+    def sur_sigterm(signum, frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, sur_sigterm)
+
+    a_surveiller = threads + ([ecrivain] if ecrivain is not None else [])
     try:
-        while all(t.is_alive() for t in threads):
+        while all(t.is_alive() for t in a_surveiller):
             time.sleep(1)
         log.error("un thread s'est arrêté, arrêt du serveur")
     except KeyboardInterrupt:
-        log.info("Ctrl+C, arrêt du serveur...")
+        log.info("arrêt demandé (Ctrl+C ou kill), arrêt du serveur...")
     finally:
         arret.set()
         for t in threads:
             t.join(timeout=2)
+        if ecrivain is not None:
+            ecrivain.arreter()           # après le traitement : écrit les dernières positions
         sock.close()
         bilan()
     return 0

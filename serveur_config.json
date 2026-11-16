@@ -13,6 +13,18 @@
   "taille_file": 10000,
   "vitesse_max_plausible": 200,
 
+  "bdd": {
+    "active": true,
+    "hote": "127.0.0.1",
+    "port": 3306,
+    "base": "flotte",
+    "utilisateur": "flotte_serveur",
+    "fichier_secret": ".bdd_secret",
+    "taille_tampon": 50000,
+    "taille_paquet": 200,
+    "rafraichir_camions": 60
+  },
+
   "logs": {
     "fichier": "logs/serveur.log",
     "niveau": "INFO",

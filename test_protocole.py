@@ -448,6 +448,7 @@ def preparer_config_serveur(commande, dossier_tmp):
     conf["intervalle_stats"] = 0                   # pas de bilan au milieu des tests
     conf["delai_silence"] = 3600                   # pas d'alerte "camion silencieux"
     conf["max_reponses_par_seconde"] = 1000        # une réponse par refus pendant le test
+    conf["bdd"] = {"active": False}                # les id de test ne sont pas dans la table camions
     conf.setdefault("logs", {})["fichier"] = os.path.join(dossier_tmp, "serveur.log")
     conf["logs"]["niveau"] = "INFO"
     chemin = os.path.join(dossier_tmp, "serveur_config_test.json")

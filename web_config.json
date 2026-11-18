@@ -1,0 +1,26 @@
+{
+  "ecoute": {
+    "hote": "127.0.0.1",
+    "port": 8080
+  },
+
+  "bdd": {
+    "hote": "127.0.0.1",
+    "port": 3306,
+    "base": "flotte",
+    "utilisateur": "flotte_web",
+    "cle_secret": "FLOTTE_WEB_MDP",
+    "fichier_secret": ".bdd_secret"
+  },
+
+  "session": {
+    "inactivite_minutes": 120,
+    "duree_max_heures": 12,
+    "cookie_secure": false
+  },
+
+  "securite": {
+    "echecs_avant_blocage": 5,
+    "blocage_minutes": 15
+  }
+}

@@ -188,9 +188,12 @@ def configurer_logs(c):
                                   backupCount=int(c["nb_fichiers"]), encoding="utf-8")
     fichier.setFormatter(format_log)
 
-    log.setLevel(c["niveau"])
-    log.addHandler(console)
-    log.addHandler(fichier)
+    # le serveur et base.py écrivent dans la même console et le même fichier
+    for nom in ("serveur", "base"):
+        logger = logging.getLogger(nom)
+        logger.setLevel(c["niveau"])
+        logger.addHandler(console)
+        logger.addHandler(fichier)
 
 
 # ---------------------------------------------------------------------------

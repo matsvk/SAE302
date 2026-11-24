@@ -1,0 +1,376 @@
+/* style.css - mise en forme commune à toutes les pages */
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: "Segoe UI", Roboto, Arial, sans-serif;
+    font-size: 15px;
+    color: #1d2433;
+    background: #eef1f5;
+}
+
+h1 {
+    font-size: 1.4em;
+    font-weight: 600;
+    margin: 0 0 6px;
+}
+
+.sous-titre {
+    margin: 0 0 24px;
+    color: #5b6475;
+    font-size: 0.95em;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    font-size: 1.05em;
+    color: #13294b;
+}
+
+.logo-icone {
+    width: 30px;
+    height: 30px;
+}
+
+/* --- champs et boutons --- */
+
+label {
+    display: block;
+    margin: 16px 0 6px;
+    font-weight: 600;
+    font-size: 0.88em;
+    color: #344054;
+}
+
+input,
+select {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 0.95em;
+    font-family: inherit;
+    color: #1d2433;
+    background: #fff;
+    border: 1px solid #c5ccd8;
+    border-radius: 4px;
+}
+
+input:focus,
+select:focus {
+    outline: none;
+    border-color: #1f4f8f;
+    box-shadow: 0 0 0 3px rgba(31, 79, 143, 0.15);
+}
+
+button {
+    width: 100%;
+    margin-top: 24px;
+    padding: 11px;
+    font-size: 0.95em;
+    font-weight: 600;
+    font-family: inherit;
+    color: #fff;
+    background: #1f4f8f;
+    border: 1px solid #1f4f8f;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #193f73;
+}
+
+button:disabled {
+    background: #8a94a6;
+    border-color: #8a94a6;
+    cursor: wait;
+}
+
+button.secondaire {
+    width: auto;
+    margin: 0;
+    padding: 8px 14px;
+    color: #344054;
+    background: #fff;
+    border-color: #c5ccd8;
+}
+
+button.secondaire:hover {
+    background: #f3f5f8;
+}
+
+.aide {
+    margin: 6px 0 0;
+    font-size: 0.8em;
+    color: #5b6475;
+}
+
+.aide.ok {
+    color: #2e7a4d;
+}
+
+.message {
+    margin: 18px 0 0;
+    padding: 10px 12px;
+    font-size: 0.88em;
+    border-radius: 4px;
+}
+
+.message.erreur {
+    color: #8f2a22;
+    background: #fdf3f2;
+    border: 1px solid #f1c0bd;
+}
+
+.message.succes {
+    color: #1d5a34;
+    background: #eef8f1;
+    border: 1px solid #b9dfc6;
+}
+
+/* --- page de connexion --- */
+
+.centre {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px 16px;
+}
+
+.carte-auth {
+    width: 100%;
+    max-width: 400px;
+    padding: 32px;
+    background: #fff;
+    border: 1px solid #d8dee8;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
+}
+
+.carte-auth .logo {
+    margin-bottom: 26px;
+}
+
+.separation {
+    margin: 24px 0 0;
+    padding-top: 18px;
+    border-top: 1px solid #e6e9ef;
+    font-size: 0.85em;
+    color: #5b6475;
+    text-align: center;
+}
+
+.pied {
+    margin-top: 18px;
+    font-size: 0.8em;
+    color: #7a8396;
+    text-align: center;
+}
+
+/* --- barre du haut des pages connectées --- */
+
+.barre {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    min-height: 56px;
+    padding: 0 24px;
+    background: #fff;
+    border-bottom: 1px solid #d8dee8;
+}
+
+.barre nav {
+    display: flex;
+    align-self: stretch;
+    margin-left: 24px;
+}
+
+.barre nav a {
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    font-size: 0.92em;
+    color: #5b6475;
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+}
+
+.barre nav a:hover {
+    color: #13294b;
+}
+
+.barre nav a.actif {
+    font-weight: 600;
+    color: #13294b;
+    border-bottom-color: #1f4f8f;
+}
+
+.compte {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.88em;
+}
+
+.compte-texte {
+    display: flex;
+    flex-direction: column;
+    text-align: right;
+}
+
+.compte-texte span {
+    color: #7a8396;
+}
+
+.avatar {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    color: #1f4f8f;
+    background: #dbe6f4;
+    border-radius: 50%;
+}
+
+/* --- pages intérieures --- */
+
+.page {
+    max-width: 820px;
+    margin: 26px auto;
+    padding: 0 20px;
+}
+
+.fil {
+    margin: 0 0 8px;
+    font-size: 0.82em;
+    color: #7a8396;
+}
+
+.panneau {
+    background: #fff;
+    border: 1px solid #d8dee8;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
+}
+
+.section {
+    display: grid;
+    grid-template-columns: 230px 1fr;
+    gap: 30px;
+    padding: 24px;
+    border-bottom: 1px solid #e6e9ef;
+}
+
+.section-seule {
+    padding: 24px;
+}
+
+.section-seule p {
+    margin: 0 0 8px;
+}
+
+.section h2 {
+    margin: 0 0 6px;
+    font-size: 0.98em;
+    font-weight: 600;
+}
+
+.section-texte p {
+    margin: 0;
+    font-size: 0.86em;
+    line-height: 1.45;
+    color: #5b6475;
+}
+
+.section label:first-child {
+    margin-top: 0;
+}
+
+/* indicateur de longueur du mot de passe */
+.force {
+    display: flex;
+    gap: 4px;
+    margin-top: 8px;
+}
+
+.force i {
+    flex: 1;
+    height: 4px;
+    background: #e3e7ee;
+    border-radius: 2px;
+}
+
+.force i.rempli {
+    background: #2e8b57;
+}
+
+.force.faible i.rempli {
+    background: #c0392b;
+}
+
+.actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 16px 24px;
+    background: #f8f9fb;
+    border-radius: 0 0 6px 6px;
+}
+
+.actions .message {
+    flex: 1;
+    margin: 0;
+}
+
+.actions button {
+    width: auto;
+    margin: 0;
+    padding: 9px 18px;
+}
+
+/* --- téléphone --- */
+
+@media (max-width: 700px) {
+    .section {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .barre {
+        padding: 8px 16px;
+    }
+
+    .barre nav {
+        order: 3;
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .compte-texte {
+        display: none;
+    }
+
+    .actions {
+        flex-wrap: wrap;
+    }
+
+    .actions .message {
+        flex-basis: 100%;
+    }
+}
+
+[hidden] {
+    display: none !important;
+}

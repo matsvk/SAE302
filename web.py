@@ -29,6 +29,14 @@ Routes (tout en JSON) :
 Le filtrage est fait dans les requêtes SQL : un conducteur ne reçoit jamais les
 données des autres camions, il n'y a rien à "cacher" côté navigateur.
 
+Pages (Phase 5) : HTML + JavaScript dans templates/ et static/, qui appellent l'API
+    GET  /                 -> /carte si connecté, sinon /connexion
+    GET  /connexion        page de connexion (tout le monde)
+    GET  /inscription      création d'un compte conducteur (gestionnaire seulement)
+    GET  /carte            page d'accueil après connexion (carte Leaflet : étape suivante)
+Les droits des pages sont vérifiés ici, côté serveur : un conducteur qui tape
+/inscription est renvoyé vers /carte sans jamais recevoir la page.
+
 Lancement :  python3 web.py            (lit web_config.json)
 """
 
@@ -46,7 +54,7 @@ from datetime import datetime
 from decimal import Decimal
 from functools import wraps
 
-from flask import Flask, g, jsonify, request, session
+from flask import Flask, g, jsonify, redirect, render_template, request, session
 from werkzeug.exceptions import HTTPException
 
 import comptes
@@ -403,6 +411,36 @@ def creer_app(conf):
         log.info("gestionnaire %s : compte %d -> %s", g.utilisateur["email"], uid, camion_id)
         return jsonify({"id": uid, "camion_id": camion_id})
 
+    # -- Phase 5 : pages HTML -----------------------------------------------------------------
+    # Les pages ne contiennent aucune donnée : le JavaScript les demande ensuite à
+    # l'API, qui applique les droits. La vérification ici sert à ne pas montrer
+    # une page à quelqu'un qui n'y a pas droit.
+
+    @app.get("/")
+    def accueil():
+        return redirect("/carte" if g.utilisateur else "/connexion")
+
+    @app.get("/connexion")
+    def page_connexion():
+        if g.utilisateur:                     # déjà connecté
+            return redirect("/carte")
+        return render_template("connexion.html")
+
+    @app.get("/inscription")
+    def page_inscription():
+        if g.utilisateur is None:
+            return redirect("/connexion")
+        if g.utilisateur["role"] != "gestionnaire":
+            log.warning("accès refusé : %s (conducteur) -> page /inscription", g.utilisateur["email"])
+            return redirect("/carte")
+        return render_template("inscription.html")
+
+    @app.get("/carte")
+    def page_carte():
+        if g.utilisateur is None:
+            return redirect("/connexion")
+        return render_template("carte.html")
+
     # -- erreurs et en-têtes de sécurité ---------------------------------------------------
 
     @app.errorhandler(ErreurApi)
@@ -426,7 +464,15 @@ def creer_app(conf):
         reponse.headers["X-Frame-Options"] = "DENY"
         reponse.headers["Referrer-Policy"] = "no-referrer"
         reponse.headers["Cache-Control"] = "no-store"
-        reponse.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+        if reponse.mimetype == "text/html":
+            # Pages : uniquement nos propres fichiers. Pas de script ni de style écrit
+            # dans le HTML (inline) : un code injecté dans la page ne s'exécuterait pas.
+            # (P2 : ajouter les tuiles OpenStreetMap dans img-src pour la carte.)
+            reponse.headers["Content-Security-Policy"] = (
+                "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+                "connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+        else:
+            reponse.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
         return reponse
 
     return app

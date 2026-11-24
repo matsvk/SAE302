@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Créer un compte conducteur - Suivi de flotte</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="/static/js/commun.js" defer></script>
+    <script src="/static/js/inscription.js" defer></script>
+</head>
+<body>
+<header class="barre">
+    <div class="logo"><svg class="logo-icone" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#1f4f8f"/><path d="M7 11h11v9H7zM18 14h4l3 3v3h-7z" fill="#fff"/><circle cx="11" cy="21.5" r="2" fill="#1f4f8f" stroke="#fff" stroke-width="1.5"/><circle cx="21.5" cy="21.5" r="2" fill="#1f4f8f" stroke="#fff" stroke-width="1.5"/></svg> Suivi de flotte</div>
+    <nav>
+        <a href="/carte">Carte</a>
+        <a href="/inscription" id="lien-inscription" class="actif" aria-current="page">Conducteurs</a>
+    </nav>
+    <div class="compte">
+        <div class="compte-texte"><b id="utilisateur"></b><span id="role"></span></div>
+        <div class="avatar" id="avatar" aria-hidden="true"></div>
+        <button type="button" id="deconnexion" class="secondaire">Déconnexion</button>
+    </div>
+</header>
+
+<main class="page">
+    <p class="fil">Conducteurs › Nouveau compte</p>
+    <h1>Créer un compte conducteur</h1>
+    <p class="sous-titre">Le conducteur ne pourra consulter que le camion qui lui est attribué.</p>
+
+    <form id="formulaire" class="panneau" novalidate>
+        <div class="section">
+            <div class="section-texte">
+                <h2>Identité</h2>
+                <p>L'adresse e-mail sert d'identifiant de connexion.</p>
+            </div>
+            <div>
+                <label for="email">Adresse e-mail</label>
+                <input id="email" name="email" type="email" autocomplete="off"
+                       autocapitalize="none" spellcheck="false" maxlength="254" required>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-texte">
+                <h2>Véhicule</h2>
+                <p>Un seul camion par conducteur.</p>
+            </div>
+            <div>
+                <label for="camion">Camion attribué</label>
+                <select id="camion" name="camion" required>
+                    <option value="">Chargement...</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-texte">
+                <h2>Mot de passe provisoire</h2>
+                <p>À transmettre au conducteur. Il est enregistré haché (bcrypt), jamais en clair.</p>
+            </div>
+            <div>
+                <label for="mot_de_passe">Mot de passe</label>
+                <input id="mot_de_passe" name="mot_de_passe" type="password"
+                       autocomplete="new-password" maxlength="200" required aria-describedby="aide-mdp">
+                <div class="force" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+                <p id="aide-mdp" class="aide">12 caractères minimum.</p>
+
+                <label for="confirmation">Confirmation</label>
+                <input id="confirmation" name="confirmation" type="password"
+                       autocomplete="new-password" maxlength="200" required>
+            </div>
+        </div>
+
+        <div class="actions">
+            <p id="message" class="message" role="alert" hidden></p>
+            <button type="reset" class="secondaire" id="annuler">Annuler</button>
+            <button type="submit" id="bouton">Créer le compte</button>
+        </div>
+    </form>
+</main>
+</body>
+</html>

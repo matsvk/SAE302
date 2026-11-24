@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Carte - Suivi de flotte</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="/static/js/commun.js" defer></script>
+    <script src="/static/js/carte.js" defer></script>
+</head>
+<body>
+<header class="barre">
+    <div class="logo"><svg class="logo-icone" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#1f4f8f"/><path d="M7 11h11v9H7zM18 14h4l3 3v3h-7z" fill="#fff"/><circle cx="11" cy="21.5" r="2" fill="#1f4f8f" stroke="#fff" stroke-width="1.5"/><circle cx="21.5" cy="21.5" r="2" fill="#1f4f8f" stroke="#fff" stroke-width="1.5"/></svg> Suivi de flotte</div>
+    <nav>
+        <a href="/carte" class="actif" aria-current="page">Carte</a>
+        <a href="/inscription" id="lien-inscription" hidden>Conducteurs</a>
+    </nav>
+    <div class="compte">
+        <div class="compte-texte"><b id="utilisateur"></b><span id="role"></span></div>
+        <div class="avatar" id="avatar" aria-hidden="true"></div>
+        <button type="button" id="deconnexion" class="secondaire">Déconnexion</button>
+    </div>
+</header>
+
+<main class="page">
+    <h1>Carte de la flotte</h1>
+    <!-- Page provisoire : la carte Leaflet sera ajoutée à l'étape suivante (P2) -->
+    <div class="panneau section-seule">
+        <p>Vous êtes connecté. La carte sera ajoutée à l'étape suivante.</p>
+        <p id="infos" class="sous-titre"></p>
+    </div>
+</main>
+</body>
+</html>

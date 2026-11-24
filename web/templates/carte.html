@@ -4,11 +4,13 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Carte - Suivi de flotte</title>
+    <link rel="stylesheet" href="/static/lib/leaflet/leaflet.css">
     <link rel="stylesheet" href="/static/css/style.css">
+    <script src="/static/lib/leaflet/leaflet.js" defer></script>
     <script src="/static/js/commun.js" defer></script>
     <script src="/static/js/carte.js" defer></script>
 </head>
-<body>
+<body class="page-carte">
 <header class="barre">
     <div class="logo"><svg class="logo-icone" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#1f4f8f"/><path d="M7 11h11v9H7zM18 14h4l3 3v3h-7z" fill="#fff"/><circle cx="11" cy="21.5" r="2" fill="#1f4f8f" stroke="#fff" stroke-width="1.5"/><circle cx="21.5" cy="21.5" r="2" fill="#1f4f8f" stroke="#fff" stroke-width="1.5"/></svg> Suivi de flotte</div>
     <nav>
@@ -22,13 +24,31 @@
     </div>
 </header>
 
-<main class="page">
-    <h1>Carte de la flotte</h1>
-    <!-- Page provisoire : la carte Leaflet sera ajoutée à l'étape suivante (P2) -->
-    <div class="panneau section-seule">
-        <p>Vous êtes connecté. La carte sera ajoutée à l'étape suivante.</p>
-        <p id="infos" class="sous-titre"></p>
-    </div>
-</main>
+<div class="disposition-carte">
+    <aside class="panneau-camions" aria-label="Liste des camions">
+        <div class="titre-panneau">
+            <h1 id="titre-liste">Camions</h1>
+            <span id="compteur" class="compteur"></span>
+        </div>
+        <p id="bandeau" class="message erreur" role="status" hidden>Serveur injoignable, nouvel essai dans 3 s…</p>
+
+        <ul id="liste-camions" class="liste-camions"></ul>
+        <p id="liste-vide" class="aide" hidden>Aucun camion à afficher.</p>
+
+        <label class="case" id="case-suivi" hidden>
+            <input type="checkbox" id="suivre" checked> Centrer la carte sur mon camion
+        </label>
+
+        <div class="legende" aria-label="Légende">
+            <span><i class="pastille etat-en_route"></i>En route</span>
+            <span><i class="pastille etat-livraison"></i>Livraison</span>
+            <span><i class="pastille etat-a_quai"></i>À quai</span>
+            <span><i class="pastille hors-ligne"></i>Hors ligne</span>
+        </div>
+        <p class="aide" id="maj">Mise à jour toutes les 3 s.</p>
+    </aside>
+
+    <main id="carte" class="carte" aria-label="Carte des camions"></main>
+</div>
 </body>
 </html>

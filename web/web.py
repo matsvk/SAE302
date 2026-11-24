@@ -466,15 +466,20 @@ def creer_app(conf):
     def entetes_securite(reponse):
         reponse.headers["X-Content-Type-Options"] = "nosniff"
         reponse.headers["X-Frame-Options"] = "DENY"
-        reponse.headers["Referrer-Policy"] = "no-referrer"
+        reponse.headers["Referrer-Policy"] = "no-referrer"     # pages : voir plus bas
         reponse.headers["Cache-Control"] = "no-store"
         if reponse.mimetype == "text/html":
             # Pages : uniquement nos propres fichiers. Pas de script ni de style écrit
             # dans le HTML (inline) : un code injecté dans la page ne s'exécuterait pas.
-            # (P2 : ajouter les tuiles OpenStreetMap dans img-src pour la carte.)
+            # Les images de la carte (tuiles) viennent d'OpenStreetMap : seule exception.
             reponse.headers["Content-Security-Policy"] = (
-                "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+                "default-src 'self'; script-src 'self'; style-src 'self'; "
+                "img-src 'self' data: https://tile.openstreetmap.org; "
                 "connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+            # OpenStreetMap refuse les tuiles demandées sans en-tête Referer (règle
+            # d'utilisation de ses serveurs) : pour les pages, on envoie seulement
+            # l'origine du site (http://adresse:port), jamais le chemin.
+            reponse.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         else:
             reponse.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
         return reponse

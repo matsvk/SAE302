@@ -371,6 +371,249 @@ button.secondaire:hover {
     }
 }
 
+/* --- page carte (Phase 5 P2) --- */
+
+.page-carte {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.disposition-carte {
+    flex: 1;
+    display: flex;
+    min-height: 0;          /* pour que la carte prenne la hauteur restante */
+}
+
+.panneau-camions {
+    width: 310px;
+    flex-shrink: 0;
+    padding: 18px 16px;
+    overflow-y: auto;
+    background: #fff;
+    border-right: 1px solid #d8dee8;
+}
+
+.titre-panneau {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.titre-panneau h1 {
+    margin: 0;
+    font-size: 1.15em;
+}
+
+.compteur {
+    font-size: 0.82em;
+    color: #7a8396;
+}
+
+.panneau-camions .message {
+    margin: 0 0 12px;
+}
+
+.liste-camions {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.camion {
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    border: 1px solid #e3e7ee;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.camion:hover,
+.camion:focus {
+    outline: none;
+    border-color: #1f4f8f;
+    background: #f5f8fc;
+}
+
+.camion.choisi {
+    border-color: #1f4f8f;
+    box-shadow: 0 0 0 2px rgba(31, 79, 143, 0.15);
+}
+
+.camion-haut {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.camion-immat {
+    margin-left: auto;
+    font-size: 0.8em;
+    color: #7a8396;
+}
+
+.camion-detail {
+    margin-top: 4px;
+    padding-left: 18px;
+    font-size: 0.84em;
+    color: #5b6475;
+}
+
+.case {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 0 0;
+    font-weight: 400;
+}
+
+.case input {
+    width: auto;
+}
+
+/* couleurs des états (pastilles de la liste et marqueurs de la carte) */
+.pastille {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.etat-en_route  { background: #2e8b57; }
+.etat-livraison { background: #d9822b; }
+.etat-a_quai    { background: #4f6fa8; }
+.etat-termine   { background: #344054; }
+.hors-ligne     { background: #a0a7b4; }
+
+.legende {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid #e6e9ef;
+    font-size: 0.82em;
+    color: #5b6475;
+}
+
+.legende span {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.carte {
+    flex: 1;
+    min-width: 0;
+}
+
+/* marqueur d'un camion : pastille + flèche de direction + nom */
+.icone-camion {
+    background: none;
+    border: none;
+}
+
+.marqueur {
+    position: relative;
+    width: 30px;
+    height: 30px;
+    border: 3px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.marqueur.hors-ligne {
+    opacity: 0.75;
+}
+
+.marqueur-fleche {
+    position: absolute;
+    inset: -3px;            /* tourne autour du centre de la pastille */
+}
+
+.marqueur-fleche::before {
+    content: "";
+    position: absolute;
+    top: -9px;
+    left: 50%;
+    margin-left: -6px;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-bottom: 9px solid #13294b;
+}
+
+.marqueur.hors-ligne .marqueur-fleche {
+    display: none;          /* plus de direction si le camion ne répond plus */
+}
+
+.marqueur-nom {
+    position: absolute;
+    top: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 1px 6px;
+    white-space: nowrap;
+    font-size: 11px;
+    font-weight: 600;
+    color: #13294b;
+    background: #fff;
+    border-radius: 3px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+/* bulle au clic sur un marqueur */
+.bulle {
+    font-family: "Segoe UI", Roboto, Arial, sans-serif;
+    font-size: 13px;
+    min-width: 200px;
+}
+
+.bulle-titre {
+    margin-bottom: 6px;
+    color: #13294b;
+}
+
+.bulle-titre span {
+    color: #7a8396;
+}
+
+.bulle-table th {
+    padding: 2px 10px 2px 0;
+    text-align: left;
+    font-weight: 600;
+    color: #5b6475;
+}
+
+.bulle-table td {
+    padding: 2px 0;
+}
+
+@media (max-width: 700px) {
+    .page-carte {
+        height: auto;
+        overflow: visible;
+    }
+
+    .disposition-carte {
+        flex-direction: column;
+    }
+
+    .panneau-camions {
+        width: 100%;
+        max-height: 40vh;
+        border-right: none;
+        border-bottom: 1px solid #d8dee8;
+    }
+
+    .carte {
+        height: 60vh;
+    }
+}
+
 [hidden] {
     display: none !important;
 }

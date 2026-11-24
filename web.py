@@ -159,7 +159,11 @@ def creer_app(conf):
         SESSION_REFRESH_EACH_REQUEST=True,  # l'expiration repart à chaque requête
         MAX_CONTENT_LENGTH=4096,
     )
-    app.json.ensure_ascii = False
+    # accents gardés tels quels dans le JSON (Flask 2.2+ : app.json ; avant : JSON_AS_ASCII)
+    if hasattr(app, "json"):
+        app.json.ensure_ascii = False
+    else:
+        app.config["JSON_AS_ASCII"] = False
     duree_max = conf["session"]["duree_max_heures"] * 3600
     secu = conf["securite"]
     echecs = CompteurEchecs(secu["echecs_avant_blocage"], secu["blocage_minutes"] * 60)

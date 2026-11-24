@@ -5,7 +5,7 @@ web.py - Phase 4 : API web avec connexion, sessions et droits (Flask).
     P2 : connexion et sessions
     P3 : chaque conducteur est lié à son camion, filtrage CÔTÉ SERVEUR
 
-Deux rôles (table utilisateurs, voir flotte/sql/02_schema.sql) :
+Deux rôles (table utilisateurs, voir bdd/sql/02_schema.sql) :
     gestionnaire  voit toute la flotte, crée les comptes conducteurs et leur
                   attribue un camion
     conducteur    rattaché à UN camion (obligatoire, vérifié par la base) :
@@ -29,7 +29,7 @@ Routes (tout en JSON) :
 Le filtrage est fait dans les requêtes SQL : un conducteur ne reçoit jamais les
 données des autres camions, il n'y a rien à "cacher" côté navigateur.
 
-Pages (Phase 5) : HTML + JavaScript dans templates/ et static/, qui appellent l'API
+Pages (Phase 5) : HTML + JavaScript dans web/templates/ et web/static/, qui appellent l'API
     GET  /                 -> /carte si connecté, sinon /connexion
     GET  /connexion        page de connexion (tout le monde)
     GET  /inscription      création d'un compte conducteur (gestionnaire seulement)
@@ -37,7 +37,7 @@ Pages (Phase 5) : HTML + JavaScript dans templates/ et static/, qui appellent l'
 Les droits des pages sont vérifiés ici, côté serveur : un conducteur qui tape
 /inscription est renvoyé vers /carte sans jamais recevoir la page.
 
-Lancement :  python3 web.py            (lit web_config.json)
+Lancement (depuis la racine du projet) :  python3 -m web.web     (lit web/web_config.json)
 """
 
 import argparse
@@ -57,9 +57,9 @@ from functools import wraps
 from flask import Flask, g, jsonify, redirect, render_template, request, session
 from werkzeug.exceptions import HTTPException
 
-import comptes
-from base import DEFAUTS_BDD, ErreurBase, lire_secret, pymysql
-from comptes import ErreurInscription
+from bdd.base import DEFAUTS_BDD, ErreurBase, lire_secret, pymysql
+from web import comptes
+from web.comptes import ErreurInscription
 
 log = logging.getLogger("web")
 
@@ -502,7 +502,7 @@ def charger_config(chemin):
 
 def main():
     parser = argparse.ArgumentParser(description="API web du suivi de flotte (phase 4)")
-    parser.add_argument("-c", "--config", default="web_config.json")
+    parser.add_argument("-c", "--config", default="web/web_config.json")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s",
                         datefmt="%Y-%m-%d %H:%M:%S")

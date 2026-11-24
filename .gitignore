@@ -1,12 +1,13 @@
-# fichiers générés
+# fichiers générés à l'exécution
 __pycache__/
 *.pyc
 cache_trajets/
 logs/
 
-# secrets : ne jamais pousser
+# secrets : ne jamais pousser (créé par bdd/creer_bdd.sh à la racine)
 .bdd_secret*
 *bdd_secret*
 
-# config locale de chacun
-serveur_config.local.json
+# configs locales de chacun (adresse de sa VM, son compte SQL...)
+*.local.json
+web_config.tailscale.json

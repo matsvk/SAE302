@@ -7,7 +7,7 @@
   "osrm": {
     "url": "https://router.project-osrm.org",
     "timeout": 10,
-    "dossier_cache": "cache_trajets",
+    "dossier_cache": "simulation/cache_trajets",
     "ligne_droite_si_echec": true
   },
 

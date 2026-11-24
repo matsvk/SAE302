@@ -7,20 +7,21 @@
 #        - le serveur UDP (flotte_serveur) : lit camions, ajoute des positions
 #        - le site web    (flotte_web)     : lit tout, gère les utilisateurs (Phase 4)
 #   4. le fichier .bdd_secret (mots de passe générés au hasard, lisible
-#      seulement par toi) : lu par base.py, jamais envoyé sur GitHub
+#      seulement par toi), à la racine du projet : lu par bdd/base.py, jamais envoyé sur GitHub
 #
 # Usage (sur la machine où tourne MariaDB) :
-#   sudo bash creer_bdd.sh
-#   sudo bash creer_bdd.sh --utilisateur matis --depuis 100.%     (serveur UDP sur une autre machine)
-#   sudo bash creer_bdd.sh --reinitialiser                        (efface TOUT et recrée)
+#   sudo bash bdd/creer_bdd.sh
+#   sudo bash bdd/creer_bdd.sh --utilisateur matis --depuis 100.%     (serveur UDP sur une autre machine)
+#   sudo bash bdd/creer_bdd.sh --reinitialiser                        (efface TOUT et recrée)
 #
 # Relançable sans risque : les tables existantes et leurs données sont gardées,
 # les mots de passe déjà présents dans .bdd_secret sont réutilisés.
 
 set -euo pipefail
 
-DOSSIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SECRET="$DOSSIER/.bdd_secret"
+DOSSIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"     # bdd/ : sql/ est ici
+RACINE="$(cd "$DOSSIER/.." && pwd)"                          # racine du projet
+SECRET="$RACINE/.bdd_secret"
 BASE="flotte"
 UTIL_SERVEUR="flotte_serveur"
 UTIL_WEB="flotte_web"
@@ -116,8 +117,8 @@ if [ -n "${SUDO_USER:-}" ]; then
 fi
 echo "- mots de passe dans $SECRET (droits 600)"
 
-if [ -f "$DOSSIER/.gitignore" ] && ! grep -qxF ".bdd_secret" "$DOSSIER/.gitignore"; then
-    echo ".bdd_secret" >> "$DOSSIER/.gitignore"
+if [ -f "$RACINE/.gitignore" ] && ! grep -qxF ".bdd_secret" "$RACINE/.gitignore"; then
+    echo ".bdd_secret" >> "$RACINE/.gitignore"
     echo "- .bdd_secret ajouté à .gitignore"
 fi
 
@@ -133,8 +134,8 @@ Le serveur UDP se connecte depuis une autre machine ($HOTE_CLIENT) :
   - MariaDB doit écouter sur le réseau : dans /etc/mysql/mariadb.conf.d/50-server.cnf
     mettre « bind-address = 0.0.0.0 » (ou l'IP de cette machine) puis
     sudo systemctl restart mariadb ;
-  - copier .bdd_secret à côté de serveur_udp.py sur l'autre machine (chmod 600).
+  - copier .bdd_secret à la racine du projet sur l'autre machine (chmod 600).
 EOF
 fi
 echo
-echo "Terminé. Test : python3 base.py"
+echo "Terminé. Test (depuis la racine du projet) : python3 -m bdd.base"

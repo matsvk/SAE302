@@ -26,7 +26,7 @@
   },
 
   "logs": {
-    "fichier": "logs/serveur.log",
+    "fichier": "serveur/logs/serveur.log",
     "niveau": "INFO",
     "taille_max_mo": 5,
     "nb_fichiers": 3

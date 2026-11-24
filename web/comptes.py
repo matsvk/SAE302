@@ -2,7 +2,7 @@
 comptes.py - Phase 4 P1 : inscription des utilisateurs du site, mot de passe haché avec bcrypt.
 
 Le mot de passe n'est jamais enregistré : seul son hash bcrypt va dans la table
-utilisateurs (colonne mot_de_passe, CHAR(60), voir sql/02_schema.sql). bcrypt :
+utilisateurs (colonne mot_de_passe, CHAR(60), voir bdd/sql/02_schema.sql). bcrypt :
   - ajoute un sel aléatoire à chaque hash : deux comptes avec le même mot de
     passe n'ont pas le même hash, et les tables de hash précalculées ne servent à rien ;
   - est volontairement lent (coût 12 = 2^12 tours, environ 0,2 s) : si la base
@@ -21,10 +21,10 @@ sinon n'importe qui pourrait s'inscrire gestionnaire et voir toute la flotte.
 
 Toutes les requêtes sont paramétrées (pas d'injection SQL possible).
 
-Usage (dans le dossier du projet) :
-    python comptes.py -c serveur_config.local.json inscrire conducteur jean@exemple.fr --camion CAM-01
-    python comptes.py -c serveur_config.local.json inscrire gestionnaire chef@exemple.fr
-    python comptes.py -c serveur_config.local.json verifier jean@exemple.fr
+Usage (depuis la racine du projet, lit web/web_config.json par défaut) :
+    python -m web.comptes inscrire conducteur jean@exemple.fr --camion CAM-01
+    python -m web.comptes inscrire gestionnaire chef@exemple.fr
+    python -m web.comptes verifier jean@exemple.fr
 Le mot de passe est demandé au clavier (il ne s'affiche pas et ne reste pas
 dans l'historique du terminal).
 """
@@ -40,7 +40,7 @@ try:
 except ImportError:
     bcrypt = None
 
-from base import DEFAUTS_BDD, ERREURS_CONNEXION, ErreurBase, _resume, lire_secret, pymysql
+from bdd.base import DEFAUTS_BDD, ERREURS_CONNEXION, ErreurBase, _resume, lire_secret, pymysql
 
 COUT_BCRYPT = 12          # 2^12 tours ; chaque +1 double le temps de calcul
 LONGUEUR_MIN = 12         # caractères
@@ -196,7 +196,7 @@ def demander_mot_de_passe():
 
 def main():
     parser = argparse.ArgumentParser(description="Comptes du site (inscription, bcrypt)")
-    parser.add_argument("-c", "--config", default="serveur_config.json")
+    parser.add_argument("-c", "--config", default="web/web_config.json")
     sous = parser.add_subparsers(dest="commande", required=True)
 
     p_ins = sous.add_parser("inscrire", help="crée un compte")

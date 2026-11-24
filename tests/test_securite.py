@@ -16,10 +16,10 @@ qu'elle résiste. Trois familles de tests :
 Le script crée lui-même des comptes de test (test-securite-xxxxxx-...@exemple.fr)
 et les supprime à la fin. Les camions et les positions ne sont pas modifiés.
 
-À lancer sur la machine où tourne web.py (la VM), dans le dossier du projet :
-    python3 test_securite.py                 (lance web.py s'il ne tourne pas déjà)
-    python3 test_securite.py --pause 1       (soutenance : une pause entre chaque test)
-    python3 test_securite.py --garder        (garde les comptes de test pour regarder)
+À lancer sur la machine où tourne web.py (la VM), depuis la racine du projet :
+    python3 -m tests.test_securite                 (lance web.py s'il ne tourne pas déjà)
+    python3 -m tests.test_securite --pause 1       (soutenance : une pause entre chaque test)
+    python3 -m tests.test_securite --garder        (garde les comptes de test pour regarder)
 
 Dépendances : celles de web.py (flask, bcrypt, pymysql).
 Code de retour : 0 si tout passe, 1 sinon.
@@ -40,10 +40,10 @@ import urllib.parse
 import urllib.request
 import zlib
 
-import comptes
-from web import charger_config
+from web import comptes
+from web.web import charger_config
 
-DOSSIER = os.path.dirname(os.path.abspath(__file__))
+DOSSIER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # racine du projet
 NOM_COOKIE = "flotte_session"
 
 # Ce qui ne doit JAMAIS apparaître dans une réponse : trace Python, erreur SQL...
@@ -475,7 +475,7 @@ def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="replace")
     parser = argparse.ArgumentParser(description="Tests de sécurité de l'API web")
-    parser.add_argument("-c", "--config", default="web_config.json")
+    parser.add_argument("-c", "--config", default="web/web_config.json")
     parser.add_argument("--url", help="adresse de l'API (défaut : celle de web_config.json)")
     parser.add_argument("--pause", type=float, default=0, help="pause entre les tests (s), pour la soutenance")
     parser.add_argument("--garder", action="store_true", help="ne pas supprimer les comptes de test")
@@ -491,14 +491,14 @@ def main():
     proc = None
     if not api_repond(url):
         print(f"l'API ne répond pas sur {url} : lancement de web.py pour le test")
-        proc = subprocess.Popen([sys.executable, "web.py", "-c", args.config], cwd=DOSSIER,
+        proc = subprocess.Popen([sys.executable, "-m", "web.web", "-c", args.config], cwd=DOSSIER,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
         for _ in range(50):
             time.sleep(0.2)
             if api_repond(url) or proc.poll() is not None:
                 break
         if not api_repond(url):
-            print("impossible de lancer web.py (lancer « python3 web.py » pour voir l'erreur)")
+            print("impossible de lancer web.py (lancer « python3 -m web.web » pour voir l'erreur)")
             return 1
 
     b = Bilan(args.pause)

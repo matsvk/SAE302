@@ -9,11 +9,11 @@ et envoie sa position au serveur en UDP toutes les `periode_envoi` secondes.
 Les trajets sont récupérés au démarrage (OSRM ou cache), un par un pour
 respecter la limite du serveur public, avant de lancer les camions.
 
-Usage :
-    python simulateur.py                         (lit config.json)
-    python simulateur.py -c autre_config.json
-    python simulateur.py --acceleration 10       (le temps simulé va 10x plus vite)
-    python simulateur.py --duree 300             (s'arrête au bout de 5 min)
+Usage (depuis la racine du projet) :
+    python -m simulation.simulateur                         (lit simulation/config.json)
+    python -m simulation.simulateur -c autre_config.json
+    python -m simulation.simulateur --acceleration 10       (le temps simulé va 10x plus vite)
+    python -m simulation.simulateur --duree 300             (s'arrête au bout de 5 min)
 """
 
 import argparse
@@ -25,15 +25,15 @@ import sys
 import threading
 import time
 
-from envoi import EmetteurUDP, construire_message
-from mouvement import Deplacement, haversine
-from routes import URL_OSRM_DEFAUT, ErreurOSRM, obtenir_trajet
+from simulation.envoi import EmetteurUDP, construire_message
+from simulation.mouvement import Deplacement, haversine
+from simulation.routes import URL_OSRM_DEFAUT, ErreurOSRM, obtenir_trajet
 
 log = logging.getLogger("simulateur")
 
 DEFAUTS = {
     "serveur": {"hote": "127.0.0.1", "port": 5005},
-    "osrm": {"url": URL_OSRM_DEFAUT, "timeout": 10, "dossier_cache": "cache_trajets",
+    "osrm": {"url": URL_OSRM_DEFAUT, "timeout": 10, "dossier_cache": "simulation/cache_trajets",
              "ligne_droite_si_echec": True},
     "simulation": {"periode_envoi": 2.0, "acceleration": 1.0, "temps_livraison": 120,
                    "affichage": 10, "graine": None},
@@ -286,7 +286,7 @@ def afficher_etat(camions):
 
 def main():
     parser = argparse.ArgumentParser(description="Simulateur de flotte de camions (SAÉ 3.02)")
-    parser.add_argument("-c", "--config", default="config.json")
+    parser.add_argument("-c", "--config", default="simulation/config.json")
     parser.add_argument("--acceleration", type=float, help="remplace simulation.acceleration")
     parser.add_argument("--duree", type=float, help="durée max de la simulation en secondes réelles")
     parser.add_argument("-v", "--verbeux", action="store_true", help="affiche les détails (debug)")

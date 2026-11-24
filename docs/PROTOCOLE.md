@@ -141,9 +141,9 @@ est pleine (10 000 messages), les nouveaux datagrammes sont abandonnés et compt
 piégés, incohérents) et vérifie que chacun est refusé, et que les vrais
 messages passent toujours :
 
-    python3 test_protocole.py                              (format seul, sans réseau)
-    python3 test_protocole.py --serveur serveur_udp.py     (avec le vrai serveur)
-    python3 test_protocole.py --demo --hote <ip> --pause 1 (démonstration en soutenance)
+    python3 -m tests.test_protocole                                  (format seul, sans réseau)
+    python3 -m tests.test_protocole --serveur serveur/serveur_udp.py (avec le vrai serveur)
+    python3 -m tests.test_protocole --demo --hote <ip> --pause 1     (démonstration en soutenance)
 
 ## 7. Sécurité : limites connues
 

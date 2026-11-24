@@ -20,8 +20,8 @@ EcrivainPositions, un thread qui :
   - si la base ne répond plus, réessaie de plus en plus espacé (1, 2, 4... 30 s)
     puis écrit tout le retard dès qu'elle revient.
 
-Test rapide (affiche la dernière position de chaque camion) :
-    python3 base.py
+Test rapide (affiche la dernière position de chaque camion), depuis la racine du projet :
+    python3 -m bdd.base
 """
 
 import argparse
@@ -47,7 +47,7 @@ DEFAUTS_BDD = {
     "port": 3306,
     "base": "flotte",
     "utilisateur": "flotte_serveur",
-    "fichier_secret": ".bdd_secret",     # créé par creer_bdd.sh
+    "fichier_secret": ".bdd_secret",     # créé par bdd/creer_bdd.sh, à la racine du projet
     "taille_tampon": 50000,              # positions gardées en mémoire si la base est en panne
     "taille_paquet": 200,                # positions écrites par requête
     "rafraichir_camions": 60,            # s entre deux relectures de la table camions
@@ -66,7 +66,7 @@ REQUETE_INSERTION = (
 # les vrais doublons (code 1062) des positions refusées.
 CODE_DOUBLON = 1062
 
-# Même requête que la vue v_derniere_position (sql/02_schema.sql), écrite ici
+# Même requête que la vue v_derniere_position (bdd/sql/02_schema.sql), écrite ici
 # pour pouvoir l'afficher et l'expliquer dans le rapport.
 REQUETE_DERNIERE_POSITION = """
 SELECT c.id AS camion_id, c.immatriculation, c.actif,
@@ -366,7 +366,7 @@ def charger_camions(conf):
 
 def main():
     parser = argparse.ArgumentParser(description="Affiche la dernière position de chaque camion")
-    parser.add_argument("-c", "--config", default="serveur_config.json")
+    parser.add_argument("-c", "--config", default="serveur/serveur_config.json")
     parser.add_argument("--sql", action="store_true", help="affiche aussi la requête utilisée")
     args = parser.parse_args()
 

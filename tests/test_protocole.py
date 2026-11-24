@@ -21,7 +21,7 @@ Une trace d'exception (Traceback) compte comme un ÉCHEC, même si le serveur
 survit : c'est un bug, pas un refus.
 
 Pour serveur_udp.py, le script fabrique une config de test temporaire à partir
-de serveur_config.json : logs dans un dossier temporaire (ton logs/serveur.log
+de serveur/serveur_config.json : logs dans un dossier temporaire (ton serveur/logs/serveur.log
 n'est pas touché), pas de bilan périodique, et les id de test ajoutés à
 camions_autorises (sinon les messages valides de test seraient refusés).
 
@@ -32,11 +32,12 @@ Catégories de tests :
   optionnel  bonnes idées mais pas exigées : avertissement, bloquant avec --strict
 
 Usage :
-    python test_protocole.py                               (niveau 1 seulement)
-    python test_protocole.py --serveur serveur_udp.py      (niveaux 1 et 2)
-    python test_protocole.py --serveur "envoi.py ecoute"   (teste le récepteur de test)
-    python test_protocole.py --serveur serveur_udp.py --strict
-    python test_protocole.py --demo --hote 192.168.1.20 --pause 1
+(depuis la racine du projet)
+    python -m tests.test_protocole                                        (niveau 1 seulement)
+    python -m tests.test_protocole --serveur serveur/serveur_udp.py       (niveaux 1 et 2)
+    python -m tests.test_protocole --serveur "simulation/envoi.py ecoute" (teste le récepteur de test)
+    python -m tests.test_protocole --serveur serveur/serveur_udp.py --strict
+    python -m tests.test_protocole --demo --hote 192.168.1.20 --pause 1
         (soutenance : envoie les pièges à un serveur déjà lancé, on regarde sa console)
 
 Code de retour : 0 si tout passe, 1 sinon (utilisable dans un script ou en CI).
@@ -58,7 +59,7 @@ from collections import deque
 from dataclasses import dataclass
 from itertools import count
 
-from envoi import (CHAMPS, FORMAT_ID, TAILLE_MAX, ErreurMessage, construire_message, decoder,
+from simulation.envoi import (CHAMPS, FORMAT_ID, TAILLE_MAX, ErreurMessage, construire_message, decoder,
                    encoder, horodatage_iso)
 
 ACCEPTE, REJETE, NON_ENVOYE = "accepté", "rejeté", "non envoyé"
@@ -72,7 +73,7 @@ ID_INTRUS = "INTRUS-99"         # bien formé, mais jamais autorisé
 ATTENTE_MAX = 0.4    # s : délai max pour que le serveur réagisse à un datagramme
 CALME = 0.1          # s : après une 1re ligne, on attend encore un peu les suivantes
 
-DOSSIER = os.path.dirname(os.path.abspath(__file__))
+DOSSIER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # racine du projet
 
 
 # ---------------------------------------------------------------------------
@@ -426,21 +427,22 @@ class ServeurTeste:
 
 
 def construire_commande(texte):
+    """'serveur/serveur_udp.py' -> python -u -m serveur.serveur_udp (lancé depuis la racine,
+    sinon ses imports « from bdd.base ... » ne trouvent pas les autres dossiers)."""
     morceaux = shlex.split(texte, posix=(os.name != "nt"))
     if morceaux and morceaux[0].endswith(".py"):
-        morceaux = [sys.executable, "-u"] + morceaux
+        module = os.path.normpath(morceaux[0])[:-3].replace(os.sep, ".")
+        morceaux = [sys.executable, "-u", "-m", module] + morceaux[1:]
     return morceaux
 
 
 def preparer_config_serveur(commande, dossier_tmp):
     """Pour serveur_udp.py lancé sans -c : écrit une config de test à partir de
     serveur_config.json et l'ajoute à la commande. Renvoie (commande, port d'écoute)."""
-    scripts = [m for m in commande if m.endswith(".py")]
-    if (not scripts or os.path.basename(scripts[0]) != "serveur_udp.py"
-            or {"-c", "--config"} & set(commande)):
+    if "serveur.serveur_udp" not in commande or {"-c", "--config"} & set(commande):
         return commande, None
     try:
-        with open(os.path.join(DOSSIER, "serveur_config.json"), encoding="utf-8") as f:
+        with open(os.path.join(DOSSIER, "serveur", "serveur_config.json"), encoding="utf-8") as f:
             conf = json.load(f)
     except FileNotFoundError:
         conf = {}
@@ -544,7 +546,7 @@ def demo(liste, hote, port, pause):
 
 def port_config():
     try:
-        with open(os.path.join(DOSSIER, "config.json"), encoding="utf-8") as f:
+        with open(os.path.join(DOSSIER, "simulation", "config.json"), encoding="utf-8") as f:
             return int(json.load(f)["serveur"]["port"])
     except (OSError, ValueError, KeyError, TypeError):
         return 5005
@@ -555,7 +557,7 @@ def main():
         sys.stdout.reconfigure(errors="replace")     # console Windows
 
     parser = argparse.ArgumentParser(description="Envoie de faux messages pour tester la validation")
-    parser.add_argument("--serveur", help='commande du serveur à tester, ex. "serveur_udp.py"')
+    parser.add_argument("--serveur", help='commande du serveur à tester, ex. "serveur/serveur_udp.py"')
     parser.add_argument("--hote", default="127.0.0.1")
     parser.add_argument("--port", type=int, help="défaut : port de serveur_config.json ou config.json")
     parser.add_argument("--strict", action="store_true",
@@ -576,7 +578,7 @@ def main():
         e, _ = tester_serveur(liste, construire_commande(args.serveur), args.hote, args.port, args.strict)
         echecs += e
     else:
-        print("\n(niveau 2 non lancé : ajouter --serveur serveur_udp.py pour tester le vrai serveur)")
+        print("\n(niveau 2 non lancé : ajouter --serveur serveur/serveur_udp.py pour tester le vrai serveur)")
 
     print(f"\n{'SUCCÈS' if echecs == 0 else 'ÉCHEC'} : {echecs} test(s) en échec "
           f"({time.monotonic() - debut:.1f} s)")

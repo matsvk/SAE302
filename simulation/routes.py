@@ -31,7 +31,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
-from mouvement import haversine, interpoler
+from simulation.mouvement import haversine, interpoler
 
 log = logging.getLogger(__name__)
 
@@ -250,7 +250,7 @@ def _ecrire_cache(chemin, trajet, depart, arrivee):
 # ---------------------------------------------------------------------------
 
 def obtenir_trajet(depart, arrivee, base=URL_OSRM_DEFAUT, timeout=10.0,
-                   dossier_cache="cache_trajets", ligne_droite_si_echec=True):
+                   dossier_cache="simulation/cache_trajets", ligne_droite_si_echec=True):
     """Renvoie le trajet routier de `depart` à `arrivee` (tuples (lat, lon)).
     Ordre : cache -> OSRM (puis mise en cache) -> ligne droite si autorisé."""
     chemin = None
@@ -277,7 +277,7 @@ def obtenir_trajet(depart, arrivee, base=URL_OSRM_DEFAUT, timeout=10.0,
 
 
 if __name__ == "__main__":
-    # Test : python routes.py 48.9472 2.2467 48.7590 2.3510
+    # Test (depuis la racine du projet) : python -m simulation.routes 48.9472 2.2467 48.7590 2.3510
     parser = argparse.ArgumentParser(description="Teste la récupération d'un trajet OSRM")
     parser.add_argument("lat1", type=float)
     parser.add_argument("lon1", type=float)
@@ -289,7 +289,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     t = obtenir_trajet((args.lat1, args.lon1), (args.lat2, args.lon2), base=args.url,
-                       dossier_cache=None if args.sans_cache else "cache_trajets")
+                       dossier_cache=None if args.sans_cache else "simulation/cache_trajets")
     vitesses = [v * 3.6 for v in t.vitesses]
     print(f"source      : {t.source}")
     print(f"distance    : {t.distance / 1000:.2f} km")

@@ -5,7 +5,7 @@ P1 : recevoir les messages UDP et lire le JSON
 P2 : ne pas croire aveuglément ce qui arrive (validation, camions autorisés,
      cohérence des positions, codes d'erreur renvoyés à l'expéditeur)
 P3 : gérer plusieurs camions en même temps et ajouter des logs
-Phase 3 P3 : enregistrer les positions acceptées dans MariaDB (base.py), si
+Phase 3 P3 : enregistrer les positions acceptées dans MariaDB (bdd/base.py), si
      "bdd.active" vaut true dans serveur_config.json
 
 Fonctionnement :
@@ -26,7 +26,7 @@ dans le fichier de logs.
 Vérifications P2, dans l'ordre (le premier problème trouvé arrête le traitement) :
   1. taille du datagramme (512 octets max)                  -> code "trop_long"
   2. UTF-8 + JSON lisible                                    -> code "json_illisible"
-  3. format du message : envoi.valider(), le même code que
+  3. format du message : simulation/envoi.py valider(), le même code que
      les camions (champs, types, bornes, état, horodatage)   -> code "format_invalide"
   4. camion autorisé : table "camions" de la base si elle est
      activée, sinon liste "camions_autorises" (liste vide =
@@ -47,9 +47,9 @@ Limite connue : sans clé secrète partagée (signature HMAC par exemple), rien
 n'empêche quelqu'un d'envoyer un message bien formé, cohérent et au nom d'un
 camion autorisé. Ces vérifications rendent la falsification difficile, pas impossible.
 
-Usage :
-    python serveur_udp.py
-    python serveur_udp.py -c autre_config.json
+Usage (depuis la racine du projet) :
+    python -m serveur.serveur_udp
+    python -m serveur.serveur_udp -c serveur/serveur_config.local.json
 """
 
 import argparse
@@ -67,9 +67,9 @@ from collections import Counter
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 
-from base import DEFAUTS_BDD, EcrivainPositions, ErreurBase, charger_camions
-from envoi import FORMAT_ID, TAILLE_MAX as TAILLE_MAX_MESSAGE, ErreurMessage, valider
-from mouvement import haversine
+from bdd.base import DEFAUTS_BDD, EcrivainPositions, ErreurBase, charger_camions
+from simulation.envoi import FORMAT_ID, TAILLE_MAX as TAILLE_MAX_MESSAGE, ErreurMessage, valider
+from simulation.mouvement import haversine
 
 TAILLE_LECTURE = 2048      # on lit plus que la taille max pour repérer les messages trop longs
 MARGE_GPS = 50.0           # m : en dessous, un écart de position n'est jamais jugé incohérent
@@ -80,7 +80,7 @@ DEFAUTS = {
     "delai_silence": 30,           # secondes sans message avant de signaler un camion
     "intervalle_stats": 60,        # secondes entre deux bilans (0 = pas de bilan)
     "taille_file": 10000,          # messages max en attente de traitement
-    "logs": {"fichier": "logs/serveur.log", "niveau": "INFO",
+    "logs": {"fichier": "serveur/logs/serveur.log", "niveau": "INFO",
              "taille_max_mo": 5, "nb_fichiers": 3},
     # P2 : validation et codes d'erreur
     "camions_autorises": [],       # liste vide = tous les camions acceptés
@@ -525,8 +525,8 @@ def main():
     global conf, file_messages, limiteur, ecrivain
 
     parser = argparse.ArgumentParser(description="Serveur UDP du suivi de flotte (SAÉ 3.02)")
-    parser.add_argument("-c", "--config", default="serveur_config.json",
-                        help="fichier de configuration (défaut : serveur_config.json)")
+    parser.add_argument("-c", "--config", default="serveur/serveur_config.json",
+                        help="fichier de configuration (défaut : serveur/serveur_config.json)")
     args = parser.parse_args()
 
     try:

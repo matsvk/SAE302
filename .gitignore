@@ -11,3 +11,5 @@ logs/
 # configs locales de chacun (adresse de sa VM, son compte SQL...)
 *.local.json
 web_config.tailscale.json
+*Zone.Identifier
+*Zone.Identifier

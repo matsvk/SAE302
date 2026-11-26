@@ -511,6 +511,33 @@ button.secondaire:hover {
     min-width: 0;
 }
 
+/* trajet récent d'un camion (Phase 5 P3) : trait SVG dessiné par Leaflet */
+.choix-trace {
+    margin-top: 18px;
+}
+
+.trace {
+    stroke: #1f4f8f;
+    stroke-width: 4;
+    stroke-opacity: 0.55;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+}
+
+.trace.trace-hors-ligne {
+    stroke: #a0a7b4;
+}
+
+.trait-legende {
+    display: inline-block;
+    width: 18px;
+    height: 4px;
+    border-radius: 2px;
+    background: #1f4f8f;
+    opacity: 0.55;
+}
+
 /* marqueur d'un camion : pastille + flèche de direction + nom */
 .icone-camion {
     background: none;

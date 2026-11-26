@@ -133,6 +133,13 @@ class Client:
         return self.post("/api/connexion", {"email": email, "mot_de_passe": mdp})
 
 
+def camions_des_positions(r):
+    """Réponse de /api/positions -> ensemble des camions présents (None si pas une réponse valide)."""
+    if r.statut != 200 or not isinstance(r.json, dict) or not isinstance(r.json.get("positions"), list):
+        return None
+    return {p.get("camion_id") for p in r.json["positions"]}
+
+
 def chemin_camion(camion_id, suite="/positions"):
     return f"/api/camions/{urllib.parse.quote(camion_id, safe='')}{suite}"
 
@@ -295,7 +302,8 @@ def _tests(url, b, email, mdp, uid, mon_camion, autre_camion, max_echecs,
     b.section("2. Sans session, session falsifiée ou volée")
     # =====================================================================
     anonyme = Client(url)
-    for chemin in ("/api/moi", "/api/camions", chemin_camion(mon_camion), "/api/utilisateurs"):
+    for chemin in ("/api/moi", "/api/camions", chemin_camion(mon_camion), "/api/positions",
+                   "/api/utilisateurs"):
         r = anonyme.get(chemin)
         b.verifier(f"sans connexion : GET {chemin} -> 401", r.statut == 401, r)
 
@@ -348,6 +356,13 @@ def _tests(url, b, email, mdp, uid, mon_camion, autre_camion, max_echecs,
     b.verifier(f"/api/camions?camion_id={autre_camion} : paramètre ignoré",
                vus == [mon_camion], f"camions reçus : {vus}")
 
+    for suite, nom in (("", ""), (f"&camion_id={autre_camion}", f" (avec ?camion_id={autre_camion})")):
+        r = conducteur.get("/api/positions?minutes=1440" + suite)
+        vus = camions_des_positions(r)
+        b.verifier(f"/api/positions : seulement {mon_camion}{nom}",
+                   r.statut == 200 and vus is not None and vus <= {mon_camion},
+                   f"camions reçus : {sorted(vus) if vus is not None else r}")
+
     r = conducteur.get(chemin_camion(mon_camion))
     b.verifier(f"historique de {mon_camion} (son camion) -> 200", r.statut == 200, r)
     r = conducteur.get(chemin_camion(autre_camion))
@@ -398,9 +413,28 @@ def _tests(url, b, email, mdp, uid, mon_camion, autre_camion, max_echecs,
         r = conducteur.get(chemin_camion(mon_camion, "/positions?minutes=" + urllib.parse.quote(piege)))
         b.verifier(f"paramètre minutes={piege!r} -> 400", r.statut == 400, r)
 
+    for nom, piege in (("minutes", "10 OR 1=1"), ("minutes", "10)--"), ("apres", "0 OR 1=1"),
+                       ("apres", "-1"), ("apres", "1;DROP TABLE positions")):
+        r = conducteur.get(f"/api/positions?{nom}=" + urllib.parse.quote(piege))
+        b.verifier(f"/api/positions?{nom}={piege!r} -> 400", r.statut == 400, r)
+
     gestionnaire = Client(url)
     r = gestionnaire.connexion(email("gestionnaire"), mdp)
     b.verifier("le gestionnaire de test se connecte", r.statut == 200, r)
+
+    # Le filtre de /api/positions sert-il vraiment ? Seulement vérifiable s'il y a des
+    # positions récentes d'un autre camion (simulateur lancé) : sinon avertissement.
+    vus_gestionnaire = camions_des_positions(gestionnaire.get("/api/positions?minutes=1440")) or set()
+    vus_conducteur = camions_des_positions(conducteur.get("/api/positions?minutes=1440")) or set()
+    autres = vus_gestionnaire - {mon_camion}
+    if autres:
+        b.verifier(f"/api/positions : le gestionnaire voit {len(vus_gestionnaire)} camion(s), "
+                   f"le conducteur aucun autre que {mon_camion}",
+                   not (vus_conducteur & autres), f"gestionnaire : {sorted(vus_gestionnaire)}, "
+                   f"conducteur : {sorted(vus_conducteur)}")
+    else:
+        b.verifier("/api/positions : positions récentes d'autres camions pour comparer", False,
+                   "aucune sur 24 h : lancer le simulateur pour que ce test compte", optionnel=True)
 
     email_piege = email("x');DROP/**/TABLE/**/utilisateurs;--")
     r = gestionnaire.post("/api/utilisateurs", {"email": email_piege, "mot_de_passe": mdp,
@@ -438,9 +472,10 @@ def _tests(url, b, email, mdp, uid, mon_camion, autre_camion, max_echecs,
         cnx.close()
     b.verifier("les tables existent toujours (camions, positions, utilisateurs)",
                {"camions", "positions", "utilisateurs"} <= set(tables), ", ".join(tables))
-    b.verifier("camions et positions n'ont pas été modifiés",
-               tuple(apres) == (nb_camions, nb_positions),
-               f"avant {nb_camions}/{nb_positions}, après {apres[0]}/{apres[1]}")
+    # (des positions peuvent s'AJOUTER pendant le test si le simulateur tourne)
+    b.verifier("camions inchangés et aucune position supprimée",
+               apres[0] == nb_camions and apres[1] >= nb_positions,
+               f"camions {nb_camions} -> {apres[0]}, positions {nb_positions} -> {apres[1]}")
 
     # =====================================================================
     b.section("5. Rien ne fuit dans les réponses")

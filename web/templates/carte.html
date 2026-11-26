@@ -39,11 +39,20 @@
             <input type="checkbox" id="suivre" checked> Centrer la carte sur mon camion
         </label>
 
+        <label for="duree-trace" class="choix-trace">Trajet affiché</label>
+        <select id="duree-trace">
+            <option value="0">Aucun</option>
+            <option value="10" selected>10 dernières minutes</option>
+            <option value="30">30 dernières minutes</option>
+            <option value="60">Dernière heure</option>
+        </select>
+
         <div class="legende" aria-label="Légende">
             <span><i class="pastille etat-en_route"></i>En route</span>
             <span><i class="pastille etat-livraison"></i>Livraison</span>
             <span><i class="pastille etat-a_quai"></i>À quai</span>
             <span><i class="pastille hors-ligne"></i>Hors ligne</span>
+            <span><i class="trait-legende"></i>Trajet récent</span>
         </div>
         <p class="aide" id="maj">Mise à jour toutes les 3 s.</p>
     </aside>

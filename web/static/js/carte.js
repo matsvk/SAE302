@@ -1,14 +1,21 @@
 /*
- * carte.js - Phase 5 P2 : carte Leaflet avec les marqueurs des camions.
+ * carte.js - Phase 5 P2 et P3 : carte Leaflet des camions, mise à jour toutes les 3 s.
  *
- * Toutes les 3 s, la page demande GET /api/camions, qui renvoie la dernière
- * position de chaque camion VISIBLE par le compte connecté :
+ * Toutes les 3 s, la page interroge l'API, qui ne renvoie que les camions
+ * VISIBLES par le compte connecté :
  *   - gestionnaire : toute la flotte ;
  *   - conducteur   : uniquement son camion (le filtre est fait par le serveur,
  *                    dans la requête SQL : rien n'est caché côté navigateur).
- * Chaque camion a un marqueur dont la couleur dépend de son état, avec une
- * flèche tournée dans sa direction (cap). Un camion dont le serveur n'a rien
- * reçu depuis 30 s est affiché "hors ligne" (grisé).
+ *
+ * P2 - GET /api/camions : dernière position de chaque camion. Chaque camion a un
+ * marqueur dont la couleur dépend de son état, avec une flèche tournée dans sa
+ * direction (cap). Un camion dont le serveur n'a rien reçu depuis 30 s est
+ * affiché "hors ligne" (grisé).
+ *
+ * P3 - GET /api/positions : trajet récent de chaque camion (trait sur la carte).
+ * Le premier appel charge les N dernières minutes ; ensuite la page envoie
+ * ?apres=<dernier_id> et ne reçoit que les nouvelles positions, qu'elle ajoute
+ * au bout du trait. Les points plus vieux que N minutes sont retirés.
  *
  * Sécurité : les textes venus du serveur sont toujours affichés avec
  * textContent (jamais innerHTML), y compris dans les marqueurs et les bulles.
@@ -20,6 +27,8 @@ const PERIODE_MS = 3000;          // même rythme que l'envoi des camions
 const HORS_LIGNE_S = 30;          // même valeur que delai_silence du serveur UDP
 const CENTRE_DEPART = [48.86, 2.35];   // Paris, avant la première position
 const ZOOM_DEPART = 10;
+const DUREE_TRACE_DEFAUT = 10;    // minutes de trajet affichées (0 = aucun)
+const MAX_APPELS_POSITIONS = 10;  // si l'historique est long, il arrive en plusieurs morceaux
 
 const NOMS_ETATS = {
     a_quai: "À quai",
@@ -33,6 +42,12 @@ let compte = null;
 const marqueurs = {};             // id du camion -> marqueur Leaflet
 let premierCadrage = true;        // cadrer la carte sur les camions au 1er chargement
 let camionChoisi = null;          // camion cliqué dans la liste (gestionnaire)
+
+const traces = {};                // id du camion -> {ligne: trait Leaflet, points: [{t, lat, lon}]}
+let dernierId = 0;                // curseur de /api/positions : dernière ligne déjà reçue
+let minutesTrace = DUREE_TRACE_DEFAUT;
+let generationTraces = 0;         // change à chaque remise à zéro (réponses en retard ignorées)
+let camionsConnus = null;         // ids des camions visibles au rafraîchissement précédent
 
 // ---------------------------------------------------------------------------
 // Petites fonctions d'affichage
@@ -165,6 +180,88 @@ function retirerAbsents(ids) {
 }
 
 // ---------------------------------------------------------------------------
+// Trajets (Phase 5 P3)
+// ---------------------------------------------------------------------------
+
+/** Efface tous les trajets ; le prochain rafraîchissement les recharge en entier. */
+function viderTraces() {
+    for (const id of Object.keys(traces)) {
+        carte.removeLayer(traces[id].ligne);
+        delete traces[id];
+    }
+    dernierId = 0;
+    generationTraces += 1;
+}
+
+function ajouterPoint(p) {
+    let trace = traces[p.camion_id];
+    if (trace === undefined) {
+        trace = {
+            points: [],
+            ligne: L.polyline([], { className: "trace", interactive: false }).addTo(carte),
+        };
+        traces[p.camion_id] = trace;
+    }
+    const point = { t: Date.parse(p.horodatage), lat: Number(p.lat), lon: Number(p.lon) };
+    // presque toujours à la fin ; sinon (message arrivé en retard) à sa place
+    let i = trace.points.length;
+    while (i > 0 && trace.points[i - 1].t > point.t) {
+        i -= 1;
+    }
+    trace.points.splice(i, 0, point);
+}
+
+/** Demande les nouvelles positions à l'API. Renvoie le statut HTTP (200 si tout va bien). */
+async function chargerTraces() {
+    const generation = generationTraces;
+    for (let appel = 0; appel < MAX_APPELS_POSITIONS; appel++) {
+        const r = await api("GET", "/api/positions?minutes=" + minutesTrace + "&apres=" + dernierId);
+        if (generation !== generationTraces) {
+            return 200;                      // réglage changé entre-temps : réponse périmée
+        }
+        if (r.statut !== 200 || !Array.isArray(r.donnees.positions)) {
+            return r.statut;
+        }
+        for (const p of r.donnees.positions) {
+            ajouterPoint(p);
+        }
+        dernierId = r.donnees.dernier_id;
+        if (r.donnees.complet) {
+            break;
+        }
+    }
+    return 200;
+}
+
+/** Coupe les trajets à N minutes et met à jour les traits sur la carte. */
+function dessinerTraces(camionsParId) {
+    const duree = minutesTrace * 60 * 1000;
+    for (const id of Object.keys(traces)) {
+        const trace = traces[id];
+        if (trace.points.length > 0) {
+            // N minutes avant la position la plus récente du camion (son horodatage à lui :
+            // reste juste si le simulateur est accéléré ou si l'horloge du PC est fausse)
+            const limite = trace.points[trace.points.length - 1].t - duree;
+            let debut = 0;
+            while (debut < trace.points.length && trace.points[debut].t < limite) {
+                debut += 1;
+            }
+            trace.points.splice(0, debut);
+        }
+        trace.ligne.setLatLngs(trace.points.map(function (p) { return [p.lat, p.lon]; }));
+        const camion = camionsParId[id];
+        const trait = trace.ligne.getElement();
+        if (trait) {
+            trait.classList.toggle("trace-hors-ligne", !camion || estHorsLigne(camion));
+        }
+    }
+}
+
+function memesCamions(a, b) {
+    return a.size === b.size && [...a].every(function (id) { return b.has(id); });
+}
+
+// ---------------------------------------------------------------------------
 // Liste à gauche
 // ---------------------------------------------------------------------------
 
@@ -271,6 +368,32 @@ async function rafraichir() {
     retirerAbsents(new Set(avecPosition.map(function (c) { return c.camion_id; })));
     afficherListe(camions);
     cadrer(avecPosition);
+
+    // Trajets. Si les camions visibles ont changé (conducteur rattaché à un autre
+    // camion, camion ajouté...), on recharge tout depuis le début.
+    const ids = new Set(camions.map(function (c) { return c.camion_id; }));
+    if (camionsConnus !== null && !memesCamions(ids, camionsConnus)) {
+        viderTraces();
+    }
+    camionsConnus = ids;
+    if (minutesTrace > 0) {
+        const statut = await chargerTraces();
+        if (statut === 401) {
+            window.location.href = "/connexion";
+            return;
+        }
+        if (statut !== 200) {
+            bandeau.textContent = statut === 0
+                ? "Serveur injoignable, nouvel essai dans 3 s…"
+                : "Trajets indisponibles (erreur " + statut + "), nouvel essai dans 3 s…";
+            bandeau.hidden = false;
+        }
+        const parId = {};
+        for (const c of camions) {
+            parId[c.camion_id] = c;
+        }
+        dessinerTraces(parId);
+    }
     document.getElementById("maj").textContent =
         "Mise à jour toutes les 3 s · dernière à " + new Date().toLocaleTimeString("fr-FR");
 }
@@ -308,6 +431,27 @@ async function boucle() {
         maxZoom: 19,
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(carte);
+
+    // Durée du trajet affiché : gardée dans le navigateur pour la prochaine visite
+    const choix = document.getElementById("duree-trace");
+    try {
+        const memorise = window.localStorage.getItem("duree-trace");
+        if (memorise !== null && [...choix.options].some(function (o) { return o.value === memorise; })) {
+            choix.value = memorise;
+        }
+    } catch (e) {
+        // stockage indisponible (navigation privée...) : on garde la valeur par défaut
+    }
+    minutesTrace = Number(choix.value);
+    choix.addEventListener("change", function () {
+        minutesTrace = Number(choix.value);
+        viderTraces();                       // rechargé au prochain rafraîchissement (3 s max)
+        try {
+            window.localStorage.setItem("duree-trace", choix.value);
+        } catch (e) {
+            // tant pis, le choix ne sera pas retenu
+        }
+    });
 
     // si l'utilisateur déplace la carte lui-même, on arrête de la recentrer
     carte.on("dragstart", function () {

@@ -22,6 +22,8 @@ Routes (tout en JSON) :
     GET  /api/moi
     GET  /api/camions                         dernière position des camions visibles
     GET  /api/camions/<id>/positions?minutes=60
+    GET  /api/positions?minutes=10&apres=0    positions récentes des camions visibles
+                                              (trajets sur la carte, mis à jour toutes les 3 s)
     GET  /api/utilisateurs                    (gestionnaire)
     POST /api/utilisateurs                    (gestionnaire) {"email", "mot_de_passe", "camion_id"}
     PUT  /api/utilisateurs/<id>/camion        (gestionnaire) {"camion_id"}
@@ -33,7 +35,8 @@ Pages (Phase 5) : HTML + JavaScript dans web/templates/ et web/static/, qui appe
     GET  /                 -> /carte si connecté, sinon /connexion
     GET  /connexion        page de connexion (tout le monde)
     GET  /inscription      création d'un compte conducteur (gestionnaire seulement)
-    GET  /carte            page d'accueil après connexion (carte Leaflet : étape suivante)
+    GET  /carte            page d'accueil après connexion : carte Leaflet, marqueurs et
+                           trajets, mis à jour toutes les 3 s (/api/camions + /api/positions)
 Les droits des pages sont vérifiés ici, côté serveur : un conducteur qui tape
 /inscription est renvoyé vers /carte sans jamais recevoir la page.
 
@@ -64,6 +67,7 @@ from web.comptes import ErreurInscription
 log = logging.getLogger("web")
 
 FORMAT_CAMION = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
+MAX_POSITIONS = 5000        # positions renvoyées au plus par /api/positions (la suite au prochain appel)
 
 DEFAUTS = {
     "ecoute": {"hote": "127.0.0.1", "port": 8080},
@@ -213,6 +217,17 @@ def creer_app(conf):
                 raise ErreurApi(400, f"champ « {champ} » manquant")
         return donnees
 
+    def parametre_entier(nom, defaut, mini, maxi):
+        """Paramètre d'URL (?nom=...) qui doit être un entier entre mini et maxi.
+        Tout le reste ("10 OR 1=1", "1.5", "") est refusé avant d'arriver au SQL."""
+        texte = request.args.get(nom, str(defaut))
+        if not re.fullmatch(r"[0-9]{1,19}", texte):
+            raise ErreurApi(400, f"{nom} doit être un nombre entier")
+        valeur = int(texte)
+        if not mini <= valeur <= maxi:
+            raise ErreurApi(400, f"{nom} doit être entre {mini} et {maxi}")
+        return valeur
+
     # -- P2 : qui est connecté ? ---------------------------------------------------
 
     @app.before_request
@@ -351,12 +366,7 @@ def creer_app(conf):
             log.warning("accès refusé : %s (conducteur de %s) a demandé %s", g.utilisateur["email"],
                         g.utilisateur["camion_id"], camion_id)
             raise ErreurApi(403, "vous n'avez pas accès à ce camion")
-        try:
-            minutes = int(request.args.get("minutes", "60"))
-        except ValueError:
-            raise ErreurApi(400, "minutes doit être un nombre entier") from None
-        if not 1 <= minutes <= 1440:
-            raise ErreurApi(400, "minutes doit être entre 1 et 1440")
+        minutes = parametre_entier("minutes", 60, 1, 1440)
         if sql("SELECT id FROM camions WHERE id = %s", (camion_id,), un=True) is None:
             raise ErreurApi(404, "camion inconnu")
         # dates en UTC dans la base : on compare avec UTC_TIMESTAMP()
@@ -364,6 +374,47 @@ def creer_app(conf):
                      "WHERE camion_id = %s AND horodatage >= UTC_TIMESTAMP(3) - INTERVAL %s MINUTE "
                      "ORDER BY horodatage DESC, seq DESC LIMIT 2000", (camion_id, minutes))
         return jsonify({"camion_id": camion_id, "minutes": minutes,
+                        "positions": [ligne_json(l) for l in lignes]})
+
+    @app.get("/api/positions")
+    @connexion_requise
+    def positions():
+        """Phase 5 P3 : positions récentes de tous les camions VISIBLES par le compte,
+        pour tracer leur trajet sur la carte et le prolonger toutes les 3 s.
+
+            ?minutes=10  fenêtre de temps (1 à 1440), d'après l'horodatage des messages
+            ?apres=N     seulement les positions enregistrées après la ligne N
+
+        Rafraîchissement : la page renvoie à chaque appel le "dernier_id" reçu la
+        fois précédente. Le premier appel (apres=0) donne tout le trajet récent,
+        les suivants seulement les nouvelles positions : quelques lignes toutes les
+        3 s au lieu de tout l'historique. Si une réponse est coupée à MAX_POSITIONS
+        lignes, "complet" vaut false et la page redemande tout de suite la suite.
+
+        Filtrage selon le rôle DANS la requête SQL, comme /api/camions : la
+        condition sur le camion est ajoutée au texte SQL pour un conducteur, et sa
+        valeur vient de la base (son compte), jamais de l'URL. Un paramètre
+        ?camion_id=... ajouté par le conducteur est donc simplement ignoré."""
+        minutes = parametre_entier("minutes", 10, 1, 1440)
+        apres = parametre_entier("apres", 0, 0, 2 ** 63 - 1)
+
+        requete = ("SELECT id, camion_id, seq, horodatage, lat, lon, vitesse, cap, etat "
+                   "FROM positions WHERE id > %s "
+                   "AND horodatage >= UTC_TIMESTAMP(3) - INTERVAL %s MINUTE")
+        parametres = [apres, minutes]
+        if camions_visibles(g.utilisateur) is not None:          # conducteur
+            requete += " AND camion_id = %s"
+            parametres.append(g.utilisateur["camion_id"])
+        requete += " ORDER BY id LIMIT %s"
+        parametres.append(MAX_POSITIONS + 1)                     # +1 : pour savoir s'il en reste
+
+        lignes = sql(requete, parametres)
+        complet = len(lignes) <= MAX_POSITIONS
+        lignes = lignes[:MAX_POSITIONS]
+        dernier_id = lignes[-1]["id"] if lignes else apres
+        for l in lignes:
+            del l["id"]           # la page n'a besoin que du dernier, renvoyé à part
+        return jsonify({"minutes": minutes, "dernier_id": dernier_id, "complet": complet,
                         "positions": [ligne_json(l) for l in lignes]})
 
     # -- P3 : le gestionnaire lie chaque conducteur à son camion ----------------------------

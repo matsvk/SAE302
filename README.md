@@ -39,8 +39,8 @@ SAE302/
 │   ├── web.py                API Flask + pages
 │   ├── comptes.py            inscription / vérification des mots de passe (bcrypt)
 │   ├── web_config.json
-│   ├── templates/            pages HTML (connexion, inscription, carte)
-│   └── static/               css/ et js/
+│   ├── templates/            pages HTML (connexion, carte, conducteurs, inscription)
+│   └── static/               css/, js/ (un fichier par page + commun.js), img/, lib/leaflet/
 │
 └── tests/
     ├── test_protocole.py     faux messages envoyés au serveur UDP
@@ -74,6 +74,40 @@ Une autre config se donne avec `-c`, par exemple
 Si on lance un fichier directement (`python serveur/serveur_udp.py`), Python
 répond `ModuleNotFoundError: No module named 'bdd'` : il faut utiliser `-m`.
 
+## Le site web
+
+Une fois `python -m web.web` lancé, ouvrir http://127.0.0.1:8080 (ou l'adresse
+de la VM). Le premier compte gestionnaire se crée en ligne de commande (voir le
+tableau plus haut) ; les comptes conducteurs se créent ensuite depuis le site.
+
+| Page | Gestionnaire | Conducteur |
+|---|---|---|
+| `/connexion` | connexion | connexion |
+| `/carte` | toute la flotte : compteurs par état (cliquables pour filtrer), recherche par camion, plaque ou conducteur, nom du conducteur de chaque camion | tableau de bord de **son** camion : vitesse, état, direction, dernier message, distance parcourue |
+| `/conducteurs` | liste des comptes, changement du camion d'un conducteur | refusée (renvoyé vers `/carte`) |
+| `/inscription` | création d'un compte conducteur | refusée (renvoyé vers `/carte`) |
+
+La carte se met à jour toutes les 3 s : marqueur de chaque camion (couleur =
+état, flèche = direction) et trait du trajet récent (10 min, 30 min ou 1 h).
+Un camion qui n'a rien envoyé depuis 30 s est affiché hors ligne.
+
+Les droits sont vérifiés **par le serveur**, pas par la page : l'API ne renvoie
+à un conducteur que les données de son camion (le filtre est dans la requête
+SQL). Les pages ne contiennent aucune donnée, elles appellent l'API :
+
+| Route | Rôle | Contenu |
+|---|---|---|
+| `POST /api/connexion`, `POST /api/deconnexion`, `GET /api/moi` | tous | session |
+| `GET /api/camions` | tous | dernière position des camions visibles |
+| `GET /api/positions?minutes=10&apres=0` | tous | positions récentes des camions visibles ; avec `apres`, seulement les nouvelles (rafraîchissement) |
+| `GET /api/camions/<id>/positions?minutes=60` | tous | historique d'un camion (403 si ce n'est pas le sien) |
+| `GET /api/utilisateurs`, `POST /api/utilisateurs`, `PUT /api/utilisateurs/<id>/camion` | gestionnaire | comptes et attribution des camions |
+
+`python -m tests.test_securite` vérifie tout ça automatiquement (mauvais mot
+de passe, conducteur qui tente de voir un autre camion, pages réservées,
+injection SQL...). Le lancer avec le serveur UDP et le simulateur en marche
+pour que tous les tests comptent.
+
 ## Dépendances
 
 - Python 3.10 ou plus
@@ -82,3 +116,11 @@ répond `ModuleNotFoundError: No module named 'bdd'` : il faut utiliser `-m`.
 - Site web : `flask`, `bcrypt`, `pymysql`
 
 Sur la VM (Ubuntu) : `sudo apt install python3-flask python3-bcrypt python3-pymysql`
+(ou `pip3 install --user flask bcrypt pymysql`).
+
+## Git : fichiers à ne jamais pousser
+
+- `.bdd_secret` (mots de passe) et les configs `*.local.json` : déjà dans `.gitignore`.
+- Les fichiers `…:Zone.Identifier` : Windows les crée quand on copie dans WSL un
+  fichier téléchargé. Leur nom contient `:`, ce qui empêche ensuite tout
+  `git pull` sous Windows. Ils sont dans `.gitignore` ; ne jamais les forcer avec `git add -f`.

@@ -1,5 +1,5 @@
 /*
- * carte.js - Phase 5 P2 et P3 : carte Leaflet des camions, mise à jour toutes les 3 s.
+ * carte.js - Phase 5 : carte Leaflet des camions, mise à jour toutes les 3 s.
  *
  * Toutes les 3 s, la page interroge l'API, qui ne renvoie que les camions
  * VISIBLES par le compte connecté :
@@ -17,6 +17,16 @@
  * ?apres=<dernier_id> et ne reçoit que les nouvelles positions, qu'elle ajoute
  * au bout du trait. Les points plus vieux que N minutes sont retirés.
  *
+ * P4 - deux vues sur la même page, selon le rôle renvoyé par /api/moi :
+ *   - gestionnaire : compteurs par état (qui servent aussi de filtres), recherche
+ *     par camion, plaque ou conducteur, nom du conducteur de chaque camion
+ *     (GET /api/utilisateurs, réservé au gestionnaire par le serveur) ;
+ *   - conducteur : tableau de bord de SON camion (vitesse, état, direction,
+ *     dernier message, distance parcourue sur le trajet affiché).
+ * Choisir la vue dans le navigateur n'est qu'une question d'affichage : un
+ * conducteur qui afficherait la vue gestionnaire ne recevrait toujours que son
+ * camion, et /api/utilisateurs lui répondrait 403.
+ *
  * Sécurité : les textes venus du serveur sont toujours affichés avec
  * textContent (jamais innerHTML), y compris dans les marqueurs et les bulles.
  */
@@ -29,25 +39,35 @@ const CENTRE_DEPART = [48.86, 2.35];   // Paris, avant la première position
 const ZOOM_DEPART = 10;
 const DUREE_TRACE_DEFAUT = 10;    // minutes de trajet affichées (0 = aucun)
 const MAX_APPELS_POSITIONS = 10;  // si l'historique est long, il arrive en plusieurs morceaux
+const PERIODE_CONDUCTEURS_MS = 60000;   // la liste des comptes change rarement
 
 const NOMS_ETATS = {
     a_quai: "À quai",
     en_route: "En route",
     livraison: "Livraison",
     termine: "Terminé",
+    hors_ligne: "Hors ligne",
 };
+const POINTS_CARDINAUX = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"];
 
 let carte = null;
 let compte = null;
+let estGestionnaire = false;
 const marqueurs = {};             // id du camion -> marqueur Leaflet
 let premierCadrage = true;        // cadrer la carte sur les camions au 1er chargement
 let camionChoisi = null;          // camion cliqué dans la liste (gestionnaire)
+let derniersCamions = [];         // dernière réponse de /api/camions
 
 const traces = {};                // id du camion -> {ligne: trait Leaflet, points: [{t, lat, lon}]}
 let dernierId = 0;                // curseur de /api/positions : dernière ligne déjà reçue
 let minutesTrace = DUREE_TRACE_DEFAUT;
 let generationTraces = 0;         // change à chaque remise à zéro (réponses en retard ignorées)
 let camionsConnus = null;         // ids des camions visibles au rafraîchissement précédent
+
+let filtreCategorie = null;       // gestionnaire : "en_route", "livraison", "a_quai", "hors_ligne" ou null
+let texteRecherche = "";
+let conducteursParCamion = {};    // gestionnaire : id du camion -> [e-mails des conducteurs]
+let prochainChargementConducteurs = 0;
 
 // ---------------------------------------------------------------------------
 // Petites fonctions d'affichage
@@ -63,6 +83,26 @@ function ageSecondes(camion) {
 
 function estHorsLigne(camion) {
     return ageSecondes(camion) > HORS_LIGNE_S;
+}
+
+function aUnePosition(camion) {
+    return camion.lat !== null && camion.lat !== undefined;
+}
+
+/** Catégorie affichée : l'état envoyé par le camion, sauf s'il ne répond plus.
+ *  "termine" (fin de service) est rangé avec "à quai" : le camion est arrêté au dépôt. */
+function categorie(camion) {
+    if (!aUnePosition(camion) || estHorsLigne(camion)) {
+        return "hors_ligne";
+    }
+    return camion.etat === "termine" ? "a_quai" : camion.etat;
+}
+
+function nomEtat(camion) {
+    if (!aUnePosition(camion)) {
+        return "Aucune position";
+    }
+    return estHorsLigne(camion) ? NOMS_ETATS.hors_ligne : (NOMS_ETATS[camion.etat] || camion.etat);
 }
 
 /** "il y a 5 s", "il y a 3 min", "il y a 2 h"... */
@@ -87,6 +127,22 @@ function heureLocale(texteIso) {
     return texteIso ? new Date(texteIso).toLocaleTimeString("fr-FR") : "-";
 }
 
+/** 213 -> "213° SO" */
+function direction(cap) {
+    const c = Number(cap) || 0;
+    return Math.round(c) + "° " + POINTS_CARDINAUX[Math.round(c / 45) % 8];
+}
+
+/** Distance en km entre deux points (formule de haversine, comme mouvement.py). */
+function distanceKm(a, b) {
+    const rad = Math.PI / 180;
+    const dLat = (b.lat - a.lat) * rad;
+    const dLon = (b.lon - a.lon) * rad;
+    const h = Math.sin(dLat / 2) ** 2
+        + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+    return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
 /** Crée un élément avec une classe et un texte (toujours via textContent). */
 function element(balise, classe, texte) {
     const e = document.createElement(balise);
@@ -100,7 +156,34 @@ function element(balise, classe, texte) {
 }
 
 function classeEtat(camion) {
-    return estHorsLigne(camion) ? "hors-ligne" : "etat-" + camion.etat;
+    const cat = categorie(camion);
+    return cat === "hors_ligne" ? "hors-ligne" : "etat-" + camion.etat;
+}
+
+/** Texte "jean@exemple.fr" (ou "2 conducteurs", "aucun conducteur") pour un camion. */
+function texteConducteurs(id) {
+    const liste = conducteursParCamion[id] || [];
+    if (liste.length === 0) {
+        return "Aucun conducteur";
+    }
+    return liste.length === 1 ? liste[0] : liste[0] + " (+" + (liste.length - 1) + ")";
+}
+
+/** Filtres du gestionnaire : état (tuile) et texte recherché. */
+function correspond(camion) {
+    if (!estGestionnaire) {
+        return true;
+    }
+    if (filtreCategorie !== null && categorie(camion) !== filtreCategorie) {
+        return false;
+    }
+    if (texteRecherche === "") {
+        return true;
+    }
+    const cherche = [camion.camion_id, camion.immatriculation || ""]
+        .concat(conducteursParCamion[camion.camion_id] || [])
+        .join(" ").toLowerCase();
+    return cherche.includes(texteRecherche);
 }
 
 // ---------------------------------------------------------------------------
@@ -109,7 +192,8 @@ function classeEtat(camion) {
 
 /** Icône du marqueur : une pastille colorée avec une flèche (cap) et le nom du camion. */
 function creerIcone(camion) {
-    const bloc = element("div", "marqueur " + classeEtat(camion));
+    const bloc = element("div", "marqueur " + classeEtat(camion)
+        + (camion.camion_id === camionChoisi ? " choisi" : ""));
     const fleche = element("div", "marqueur-fleche");
     // le cap est appliqué par JavaScript (CSSOM) : autorisé par la CSP,
     // contrairement à un attribut style="..." écrit dans le HTML
@@ -133,15 +217,18 @@ function creerBulle(camion) {
     if (camion.immatriculation) {
         titre.appendChild(element("span", "", " · " + camion.immatriculation));
     }
+    titre.appendChild(element("span", "badge " + classeEtat(camion), nomEtat(camion)));
     bloc.appendChild(titre);
 
     const lignes = [
-        ["État", estHorsLigne(camion) ? "Hors ligne" : (NOMS_ETATS[camion.etat] || camion.etat)],
         ["Vitesse", Number(camion.vitesse).toFixed(1) + " km/h"],
-        ["Direction", Math.round(Number(camion.cap)) + "°"],
+        ["Direction", direction(camion.cap)],
         ["Position", Number(camion.lat).toFixed(5) + ", " + Number(camion.lon).toFixed(5)],
         ["Reçu", heureLocale(camion.recu_le) + " (" + depuis(camion) + ")"],
     ];
+    if (estGestionnaire) {
+        lignes.push(["Conducteur", texteConducteurs(camion.camion_id)]);
+    }
     const table = element("table", "bulle-table");
     for (const [nom, valeur] of lignes) {
         const tr = document.createElement("tr");
@@ -159,7 +246,6 @@ function mettreAJourMarqueur(camion) {
     if (m === undefined) {
         m = L.marker(position, { title: camion.camion_id, keyboard: true });
         m.bindPopup(creerBulle(camion));
-        m.addTo(carte);
         marqueurs[camion.camion_id] = m;
     } else {
         m.setLatLng(position);
@@ -175,6 +261,28 @@ function retirerAbsents(ids) {
         if (!ids.has(id)) {
             carte.removeLayer(marqueurs[id]);
             delete marqueurs[id];
+        }
+    }
+}
+
+/** Affiche sur la carte seulement les camions qui passent les filtres. */
+function appliquerFiltreCarte() {
+    const parId = {};
+    for (const c of derniersCamions) {
+        parId[c.camion_id] = c;
+    }
+    for (const id of Object.keys(marqueurs)) {
+        const visible = parId[id] !== undefined && correspond(parId[id]);
+        if (visible && !carte.hasLayer(marqueurs[id])) {
+            marqueurs[id].addTo(carte);
+        } else if (!visible && carte.hasLayer(marqueurs[id])) {
+            carte.removeLayer(marqueurs[id]);
+        }
+    }
+    for (const id of Object.keys(traces)) {
+        const trait = traces[id].ligne.getElement();
+        if (trait) {
+            trait.classList.toggle("trace-masquee", parId[id] === undefined || !correspond(parId[id]));
         }
     }
 }
@@ -257,23 +365,92 @@ function dessinerTraces(camionsParId) {
     }
 }
 
+/** Longueur (km) et durée (min) du trajet affiché d'un camion, ou null. */
+function bilanTrace(id) {
+    const trace = traces[id];
+    if (!trace || trace.points.length < 2) {
+        return null;
+    }
+    let km = 0;
+    for (let i = 1; i < trace.points.length; i++) {
+        km += distanceKm(trace.points[i - 1], trace.points[i]);
+    }
+    const minutes = (trace.points[trace.points.length - 1].t - trace.points[0].t) / 60000;
+    return { km: km, minutes: minutes };
+}
+
 function memesCamions(a, b) {
     return a.size === b.size && [...a].every(function (id) { return b.has(id); });
 }
 
 // ---------------------------------------------------------------------------
-// Liste à gauche
+// Vue gestionnaire : compteurs, filtres, liste
 // ---------------------------------------------------------------------------
+
+/** Liste des comptes (gestionnaire seulement) : qui conduit quel camion. */
+async function chargerConducteurs() {
+    if (!estGestionnaire || Date.now() < prochainChargementConducteurs) {
+        return;
+    }
+    prochainChargementConducteurs = Date.now() + PERIODE_CONDUCTEURS_MS;
+    const r = await api("GET", "/api/utilisateurs");
+    if (r.statut !== 200 || !Array.isArray(r.donnees)) {
+        return;                              // pas grave : la carte marche sans les noms
+    }
+    const parCamion = {};
+    for (const u of r.donnees) {
+        if (u.role === "conducteur" && u.camion_id) {
+            (parCamion[u.camion_id] = parCamion[u.camion_id] || []).push(u.email);
+        }
+    }
+    conducteursParCamion = parCamion;
+}
+
+function afficherTuiles(camions) {
+    const nombres = { en_route: 0, livraison: 0, a_quai: 0, hors_ligne: 0 };
+    for (const c of camions) {
+        nombres[categorie(c)] = (nombres[categorie(c)] || 0) + 1;
+    }
+    for (const cat of Object.keys(nombres)) {
+        document.getElementById("nb-" + cat).textContent = nombres[cat];
+    }
+    for (const tuile of document.querySelectorAll(".tuile")) {
+        const active = tuile.dataset.categorie === filtreCategorie;
+        tuile.classList.toggle("active", active);
+        tuile.setAttribute("aria-pressed", active ? "true" : "false");
+    }
+    const filtreActif = document.getElementById("filtre-actif");
+    filtreActif.hidden = filtreCategorie === null && texteRecherche === "";
+    const morceaux = [];
+    if (filtreCategorie !== null) {
+        morceaux.push(NOMS_ETATS[filtreCategorie]);
+    }
+    if (texteRecherche !== "") {
+        morceaux.push("« " + texteRecherche + " »");
+    }
+    document.getElementById("filtre-texte").textContent = "Filtre : " + morceaux.join(", ");
+}
+
+function choisirCamion(camion) {
+    camionChoisi = camion.camion_id;
+    carte.setView([Number(camion.lat), Number(camion.lon)], Math.max(carte.getZoom(), 14));
+    const m = marqueurs[camion.camion_id];
+    if (m && carte.hasLayer(m)) {
+        m.openPopup();
+    }
+    afficherVue();
+}
 
 function afficherListe(camions) {
     const liste = document.getElementById("liste-camions");
     liste.textContent = "";
-    for (const camion of camions) {
+    const affiches = camions.filter(correspond);
+    for (const camion of affiches) {
         const li = element("li", "camion" + (camion.camion_id === camionChoisi ? " choisi" : ""));
-        const avecPosition = camion.lat !== null && camion.lat !== undefined;
+        const avecPosition = aUnePosition(camion);
 
         const haut = element("div", "camion-haut");
-        haut.appendChild(element("i", "pastille " + (avecPosition ? classeEtat(camion) : "hors-ligne")));
+        haut.appendChild(element("i", "pastille " + classeEtat(camion)));
         haut.appendChild(element("b", "", camion.camion_id));
         if (camion.immatriculation) {
             haut.appendChild(element("span", "camion-immat", camion.immatriculation));
@@ -286,48 +463,87 @@ function afficherListe(camions) {
         } else if (estHorsLigne(camion)) {
             detail = "Hors ligne · dernière position " + depuis(camion);
         } else {
-            detail = (NOMS_ETATS[camion.etat] || camion.etat) + " · "
-                + Number(camion.vitesse).toFixed(0) + " km/h · " + depuis(camion);
+            detail = nomEtat(camion) + " · " + Number(camion.vitesse).toFixed(0) + " km/h · " + depuis(camion);
         }
         li.appendChild(element("div", "camion-detail", detail));
+        li.appendChild(element("div", "camion-conducteur", texteConducteurs(camion.camion_id)));
 
         if (avecPosition) {
             li.tabIndex = 0;
             li.setAttribute("role", "button");
-            const choisir = function () {
-                camionChoisi = camion.camion_id;
-                carte.setView([Number(camion.lat), Number(camion.lon)], Math.max(carte.getZoom(), 14));
-                marqueurs[camion.camion_id].openPopup();
-                afficherListe(camions);
-            };
-            li.addEventListener("click", choisir);
+            li.addEventListener("click", function () { choisirCamion(camion); });
             li.addEventListener("keydown", function (e) {
                 if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    choisir();
+                    choisirCamion(camion);
                 }
             });
         }
         liste.appendChild(li);
     }
-    document.getElementById("liste-vide").hidden = camions.length > 0;
-
-    const actifs = camions.filter(function (c) {
-        return c.lat !== null && !estHorsLigne(c);
-    }).length;
-    document.getElementById("compteur").textContent =
-        camions.length + " camion" + (camions.length > 1 ? "s" : "") + " · " + actifs + " en ligne";
+    const vide = document.getElementById("liste-vide");
+    vide.hidden = affiches.length > 0;
+    vide.textContent = camions.length === 0 ? "Aucun camion dans la flotte." : "Aucun camion ne correspond.";
 }
 
 // ---------------------------------------------------------------------------
-// Rafraîchissement
+// Vue conducteur : tableau de bord de son camion
 // ---------------------------------------------------------------------------
+
+function afficherTableauBord(camion) {
+    const vide = document.getElementById("tb-vide");
+    if (camion === undefined) {
+        vide.textContent = "Aucun camion ne vous est attribué. Contactez votre gestionnaire.";
+        vide.hidden = false;
+        return;
+    }
+    document.getElementById("tb-camion").textContent = camion.camion_id;
+    document.getElementById("tb-immat").textContent = camion.immatriculation || "";
+    const etat = document.getElementById("tb-etat");
+    etat.textContent = nomEtat(camion);
+    etat.className = "badge " + classeEtat(camion);
+
+    const avecPosition = aUnePosition(camion);
+    vide.textContent = "Votre camion n'a encore envoyé aucune position.";
+    vide.hidden = avecPosition;
+    const roule = avecPosition && !estHorsLigne(camion) && camion.etat === "en_route";
+    document.getElementById("tb-vitesse").textContent = roule ? Number(camion.vitesse).toFixed(0) : "0";
+    document.getElementById("tb-direction").textContent = roule ? direction(camion.cap) : "-";
+    document.getElementById("tb-recu").textContent = avecPosition
+        ? heureLocale(camion.recu_le) + " (" + depuis(camion) + ")" : "-";
+    document.getElementById("tb-position").textContent = avecPosition
+        ? Number(camion.lat).toFixed(5) + ", " + Number(camion.lon).toFixed(5) : "-";
+
+    const bilan = minutesTrace > 0 ? bilanTrace(camion.camion_id) : null;
+    document.getElementById("tb-trajet").textContent = bilan === null ? "-"
+        : bilan.km.toFixed(1).replace(".", ",") + " km en " + Math.max(1, Math.round(bilan.minutes)) + " min";
+}
+
+// ---------------------------------------------------------------------------
+// Affichage complet et rafraîchissement
+// ---------------------------------------------------------------------------
+
+/** Redessine le panneau avec les dernières données (sans rien redemander au serveur). */
+function afficherVue() {
+    const camions = derniersCamions;
+    if (estGestionnaire) {
+        afficherTuiles(camions);
+        afficherListe(camions);
+        appliquerFiltreCarte();
+    } else {
+        afficherTableauBord(camions[0]);
+    }
+    const enLigne = camions.filter(function (c) { return categorie(c) !== "hors_ligne"; }).length;
+    document.getElementById("compteur").textContent = estGestionnaire
+        ? camions.length + " camion" + (camions.length > 1 ? "s" : "") + " · " + enLigne + " en ligne"
+        : (enLigne ? "en ligne" : "hors ligne");
+}
 
 function cadrer(avecPosition) {
     if (avecPosition.length === 0) {
         return;
     }
-    if (compte.role === "conducteur") {
+    if (!estGestionnaire) {
         if (premierCadrage || document.getElementById("suivre").checked) {
             const c = avecPosition[0];
             carte.setView([Number(c.lat), Number(c.lon)], premierCadrage ? 14 : carte.getZoom());
@@ -341,33 +557,34 @@ function cadrer(avecPosition) {
     premierCadrage = false;
 }
 
-async function rafraichir() {
-    const r = await api("GET", "/api/camions");
+function signalerErreur(statut, quoi) {
     const bandeau = document.getElementById("bandeau");
+    bandeau.textContent = statut === 0
+        ? "Serveur injoignable, nouvel essai dans 3 s…"
+        : quoi + " indisponible (erreur " + statut + "), nouvel essai dans 3 s…";
+    bandeau.hidden = false;
+}
 
+async function rafraichir() {
+    await chargerConducteurs();
+    const r = await api("GET", "/api/camions");
     if (r.statut === 401) {                  // session expirée ou déconnexion ailleurs
         window.location.href = "/connexion";
         return;
     }
     if (r.statut !== 200 || !Array.isArray(r.donnees)) {
-        bandeau.textContent = r.statut === 0
-            ? "Serveur injoignable, nouvel essai dans 3 s…"
-            : "Erreur du serveur (" + r.statut + "), nouvel essai dans 3 s…";
-        bandeau.hidden = false;
+        signalerErreur(r.statut, "Serveur");
         return;                              // on garde l'affichage précédent
     }
-    bandeau.hidden = true;
+    document.getElementById("bandeau").hidden = true;
 
     const camions = r.donnees;
-    const avecPosition = camions.filter(function (c) {
-        return c.lat !== null && c.lat !== undefined;
-    });
+    derniersCamions = camions;
+    const avecPosition = camions.filter(aUnePosition);
     for (const camion of avecPosition) {
         mettreAJourMarqueur(camion);
     }
     retirerAbsents(new Set(avecPosition.map(function (c) { return c.camion_id; })));
-    afficherListe(camions);
-    cadrer(avecPosition);
 
     // Trajets. Si les camions visibles ont changé (conducteur rattaché à un autre
     // camion, camion ajouté...), on recharge tout depuis le début.
@@ -383,10 +600,7 @@ async function rafraichir() {
             return;
         }
         if (statut !== 200) {
-            bandeau.textContent = statut === 0
-                ? "Serveur injoignable, nouvel essai dans 3 s…"
-                : "Trajets indisponibles (erreur " + statut + "), nouvel essai dans 3 s…";
-            bandeau.hidden = false;
+            signalerErreur(statut, "Trajets");
         }
         const parId = {};
         for (const c of camions) {
@@ -394,6 +608,16 @@ async function rafraichir() {
         }
         dessinerTraces(parId);
     }
+
+    afficherVue();
+    if (!estGestionnaire) {
+        for (const m of Object.values(marqueurs)) {
+            if (!carte.hasLayer(m)) {
+                m.addTo(carte);
+            }
+        }
+    }
+    cadrer(avecPosition.filter(correspond));
     document.getElementById("maj").textContent =
         "Mise à jour toutes les 3 s · dernière à " + new Date().toLocaleTimeString("fr-FR");
 }
@@ -413,25 +637,28 @@ async function boucle() {
 // Démarrage
 // ---------------------------------------------------------------------------
 
-(async function () {
-    compte = await chargerCompte();
-    if (compte === null) {
-        return;
+function brancherFiltres() {
+    for (const tuile of document.querySelectorAll(".tuile")) {
+        tuile.addEventListener("click", function () {
+            const cat = tuile.dataset.categorie;
+            filtreCategorie = filtreCategorie === cat ? null : cat;   // 2e clic : on retire le filtre
+            afficherVue();
+        });
     }
-    if (compte.role === "gestionnaire") {
-        document.getElementById("lien-inscription").hidden = false;
-        document.getElementById("titre-liste").textContent = "Flotte";
-    } else {
-        document.getElementById("titre-liste").textContent = "Mon camion";
-        document.getElementById("case-suivi").hidden = false;
-    }
+    const recherche = document.getElementById("recherche");
+    recherche.addEventListener("input", function () {
+        texteRecherche = recherche.value.trim().toLowerCase();
+        afficherVue();
+    });
+    document.getElementById("filtre-effacer").addEventListener("click", function () {
+        filtreCategorie = null;
+        texteRecherche = "";
+        recherche.value = "";
+        afficherVue();
+    });
+}
 
-    carte = L.map("carte").setView(CENTRE_DEPART, ZOOM_DEPART);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    }).addTo(carte);
-
+function brancherDureeTrace() {
     // Durée du trajet affiché : gardée dans le navigateur pour la prochaine visite
     const choix = document.getElementById("duree-trace");
     try {
@@ -446,19 +673,41 @@ async function boucle() {
     choix.addEventListener("change", function () {
         minutesTrace = Number(choix.value);
         viderTraces();                       // rechargé au prochain rafraîchissement (3 s max)
+        afficherVue();
         try {
             window.localStorage.setItem("duree-trace", choix.value);
         } catch (e) {
             // tant pis, le choix ne sera pas retenu
         }
     });
+}
 
-    // si l'utilisateur déplace la carte lui-même, on arrête de la recentrer
+(async function () {
+    compte = await chargerCompte();
+    if (compte === null) {
+        return;
+    }
+    estGestionnaire = compte.role === "gestionnaire";
+    document.getElementById("titre-liste").textContent = estGestionnaire ? "Flotte" : "Mon camion";
+    document.getElementById(estGestionnaire ? "vue-gestionnaire" : "vue-conducteur").hidden = false;
+    document.body.classList.add(estGestionnaire ? "vue-gestionnaire" : "vue-conducteur");
+
+    carte = L.map("carte").setView(CENTRE_DEPART, ZOOM_DEPART);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }).addTo(carte);
+
+    // si le conducteur déplace la carte lui-même, on arrête de la recentrer
     carte.on("dragstart", function () {
-        if (compte.role === "conducteur") {
+        if (!estGestionnaire) {
             document.getElementById("suivre").checked = false;
         }
     });
 
+    if (estGestionnaire) {
+        brancherFiltres();
+    }
+    brancherDureeTrace();
     boucle();
 })();

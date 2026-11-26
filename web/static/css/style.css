@@ -371,7 +371,7 @@ button.secondaire:hover {
     }
 }
 
-/* --- page carte (Phase 5 P2) --- */
+/* --- page carte (Phase 5 P2, P3 et P4) --- */
 
 .page-carte {
     height: 100vh;
@@ -631,13 +631,406 @@ button.secondaire:hover {
 
     .panneau-camions {
         width: 100%;
-        max-height: 40vh;
         border-right: none;
-        border-bottom: 1px solid #d8dee8;
+        border-top: 1px solid #d8dee8;
     }
 
+    /* téléphone : la carte en haut, le panneau en dessous (la page défile).
+       flex: none, sinon flex: 1 l'emporte sur la hauteur et la carte fait 0 px */
     .carte {
-        height: 60vh;
+        order: -1;
+        flex: none;
+        height: 55vh;
+    }
+}
+
+/* =====================================================================
+   Phase 5 P4 : vue gestionnaire, vue conducteur, page Conducteurs
+   ===================================================================== */
+
+/* texte lu par les lecteurs d'écran mais pas affiché */
+.visuel-cache {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.fil a {
+    color: inherit;
+}
+
+.fil a:hover {
+    color: #1f4f8f;
+}
+
+.vide {
+    margin: 12px 0;
+    padding: 16px;
+    font-size: 0.88em;
+    text-align: center;
+    color: #7a8396;
+    background: #f8f9fb;
+    border: 1px dashed #d8dee8;
+    border-radius: 6px;
+}
+
+.discret {
+    color: #98a1b2;
+}
+
+/* --- badges d'état (texte foncé sur fond clair : bien lisible) --- */
+.badge {
+    display: inline-block;
+    padding: 2px 9px;
+    font-size: 0.78em;
+    font-weight: 600;
+    line-height: 1.6;
+    white-space: nowrap;
+    border-radius: 999px;
+}
+
+.badge.etat-en_route  { color: #1e6b41; background: #e3f3ea; }
+.badge.etat-livraison { color: #8a4a0c; background: #fcefe1; }
+.badge.etat-a_quai    { color: #2f4b80; background: #e4ebf7; }
+.badge.etat-termine   { color: #344054; background: #e9ecf1; }
+.badge.hors-ligne     { color: #5b6475; background: #eceef2; }
+.badge.role-gestionnaire { color: #13294b; background: #dbe6f4; }
+.badge.role-conducteur   { color: #344054; background: #eef1f5; }
+
+.bulle-titre .badge {
+    margin-left: 8px;
+}
+
+/* --- vue gestionnaire : tuiles qui comptent ET filtrent --- */
+.tuiles {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+button.tuile {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    width: auto;
+    margin: 0;
+    padding: 10px 12px;
+    font-weight: 400;
+    text-align: left;
+    color: #1d2433;
+    background: #f8f9fb;
+    border: 1px solid #e3e7ee;
+    border-radius: 6px;
+}
+
+button.tuile:hover {
+    background: #f1f4f9;
+    border-color: #c5ccd8;
+}
+
+button.tuile.active {
+    background: #edf3fb;
+    border-color: #1f4f8f;
+    box-shadow: 0 0 0 2px rgba(31, 79, 143, 0.15);
+}
+
+.tuile-nombre {
+    font-size: 1.45em;
+    font-weight: 700;
+    line-height: 1.1;
+    color: #13294b;
+}
+
+.tuile-nom {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8em;
+    color: #5b6475;
+}
+
+.recherche {
+    margin-bottom: 10px;
+}
+
+.filtre-actif {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0 0 10px;
+    font-size: 0.82em;
+    color: #5b6475;
+}
+
+button.lien {
+    width: auto;
+    margin: 0;
+    padding: 0;
+    font-size: 1em;
+    font-weight: 600;
+    color: #1f4f8f;
+    background: none;
+    border: none;
+}
+
+button.lien:hover {
+    text-decoration: underline;
+    background: none;
+}
+
+.camion-conducteur {
+    margin-top: 2px;
+    padding-left: 18px;
+    font-size: 0.8em;
+    color: #7a8396;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.marqueur.choisi {
+    box-shadow: 0 0 0 4px rgba(31, 79, 143, 0.35), 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.trace.trace-masquee {
+    display: none;
+}
+
+/* --- vue conducteur : tableau de bord de son camion --- */
+.tableau-bord {
+    padding: 16px;
+    border: 1px solid #e3e7ee;
+    border-radius: 8px;
+    background: linear-gradient(180deg, #f7f9fc 0%, #fff 60%);
+}
+
+.tb-entete {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.tb-camion {
+    font-size: 1.3em;
+    font-weight: 700;
+    color: #13294b;
+}
+
+.tb-immat {
+    margin-top: 2px;
+    display: inline-block;
+    padding: 1px 7px;
+    font-size: 0.8em;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: #344054;
+    background: #fff;
+    border: 1px solid #c5ccd8;
+    border-radius: 3px;
+}
+
+.tb-immat:empty {
+    display: none;
+}
+
+.tb-vitesse {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin: 14px 0 10px;
+}
+
+.tb-vitesse span {
+    font-size: 3em;
+    font-weight: 700;
+    line-height: 1;
+    color: #13294b;
+    font-variant-numeric: tabular-nums;
+}
+
+.tb-vitesse small {
+    font-size: 0.95em;
+    color: #7a8396;
+}
+
+.tb-details {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 14px;
+    margin: 0;
+    padding-top: 12px;
+    border-top: 1px solid #e6e9ef;
+}
+
+.tb-details dt {
+    font-size: 0.76em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #7a8396;
+}
+
+.tb-details dd {
+    margin: 2px 0 0;
+    font-size: 0.9em;
+    color: #1d2433;
+}
+
+/* --- page Conducteurs --- */
+.page-large {
+    max-width: 1040px;
+}
+
+.entete-page {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+a.bouton {
+    display: inline-block;
+    flex-shrink: 0;
+    padding: 9px 16px;
+    font-size: 0.92em;
+    font-weight: 600;
+    color: #fff;
+    text-decoration: none;
+    background: #1f4f8f;
+    border-radius: 4px;
+}
+
+a.bouton:hover {
+    background: #193f73;
+}
+
+.resume {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.resume-bloc {
+    display: flex;
+    flex-direction: column;
+    padding: 14px 16px;
+    background: #fff;
+    border: 1px solid #d8dee8;
+    border-radius: 6px;
+}
+
+.resume-nombre {
+    font-size: 1.6em;
+    font-weight: 700;
+    color: #13294b;
+}
+
+.resume-nom {
+    font-size: 0.85em;
+    color: #5b6475;
+}
+
+.resume-detail {
+    margin-top: 4px;
+    font-size: 0.8em;
+    color: #7a8396;
+}
+
+.outils {
+    padding: 14px 16px 4px;
+}
+
+.outils .recherche {
+    max-width: 360px;
+    margin: 0;
+}
+
+.panneau > .message {
+    margin: 10px 16px 0;
+}
+
+.panneau > .vide {
+    margin: 12px 16px 16px;
+}
+
+.tableau-defilant {
+    overflow-x: auto;
+}
+
+.tableau {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9em;
+}
+
+.tableau th {
+    padding: 10px 16px;
+    font-size: 0.78em;
+    font-weight: 600;
+    text-align: left;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #7a8396;
+    border-bottom: 1px solid #e6e9ef;
+}
+
+.tableau td {
+    padding: 10px 16px;
+    vertical-align: middle;
+    border-bottom: 1px solid #eef1f5;
+}
+
+.tableau tbody tr:hover {
+    background: #f8f9fb;
+}
+
+.tableau tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.cellule-compte {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.avatar.petit {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    font-size: 0.85em;
+}
+
+.vous {
+    padding: 0 6px;
+    font-size: 0.75em;
+    color: #1f4f8f;
+    border: 1px solid #bcd0ea;
+    border-radius: 3px;
+}
+
+select.choix-camion {
+    width: auto;
+    min-width: 190px;
+    padding: 6px 10px;
+}
+
+@media (max-width: 700px) {
+    .resume {
+        grid-template-columns: 1fr;
+    }
+
+    .entete-page {
+        flex-direction: column;
     }
 }
 

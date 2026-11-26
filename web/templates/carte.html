@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Carte - Suivi de flotte</title>
+    <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/static/lib/leaflet/leaflet.css">
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="/static/lib/leaflet/leaflet.js" defer></script>
@@ -12,10 +13,10 @@
 </head>
 <body class="page-carte">
 <header class="barre">
-    <div class="logo"><svg class="logo-icone" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#1f4f8f"/><path d="M7 11h11v9H7zM18 14h4l3 3v3h-7z" fill="#fff"/><circle cx="11" cy="21.5" r="2" fill="#1f4f8f" stroke="#fff" stroke-width="1.5"/><circle cx="21.5" cy="21.5" r="2" fill="#1f4f8f" stroke="#fff" stroke-width="1.5"/></svg> Suivi de flotte</div>
+    <div class="logo"><img class="logo-icone" src="/static/img/favicon.svg" alt=""> Suivi de flotte</div>
     <nav>
         <a href="/carte" class="actif" aria-current="page">Carte</a>
-        <a href="/inscription" id="lien-inscription" hidden>Conducteurs</a>
+        <a href="/conducteurs" id="lien-conducteurs" hidden>Conducteurs</a>
     </nav>
     <div class="compte">
         <div class="compte-texte"><b id="utilisateur"></b><span id="role"></span></div>
@@ -25,19 +26,69 @@
 </header>
 
 <div class="disposition-carte">
-    <aside class="panneau-camions" aria-label="Liste des camions">
+    <aside class="panneau-camions" aria-label="Camions">
         <div class="titre-panneau">
             <h1 id="titre-liste">Camions</h1>
             <span id="compteur" class="compteur"></span>
         </div>
         <p id="bandeau" class="message erreur" role="status" hidden>Serveur injoignable, nouvel essai dans 3 s…</p>
 
-        <ul id="liste-camions" class="liste-camions"></ul>
-        <p id="liste-vide" class="aide" hidden>Aucun camion à afficher.</p>
+        <!-- Vue gestionnaire : toute la flotte, filtres par état, recherche -->
+        <section id="vue-gestionnaire" hidden>
+            <div class="tuiles" role="group" aria-label="Filtrer par état">
+                <button type="button" class="tuile" data-categorie="en_route" aria-pressed="false">
+                    <span class="tuile-nombre" id="nb-en_route">0</span>
+                    <span class="tuile-nom"><i class="pastille etat-en_route"></i>En route</span>
+                </button>
+                <button type="button" class="tuile" data-categorie="livraison" aria-pressed="false">
+                    <span class="tuile-nombre" id="nb-livraison">0</span>
+                    <span class="tuile-nom"><i class="pastille etat-livraison"></i>Livraison</span>
+                </button>
+                <button type="button" class="tuile" data-categorie="a_quai" aria-pressed="false">
+                    <span class="tuile-nombre" id="nb-a_quai">0</span>
+                    <span class="tuile-nom"><i class="pastille etat-a_quai"></i>À quai</span>
+                </button>
+                <button type="button" class="tuile" data-categorie="hors_ligne" aria-pressed="false">
+                    <span class="tuile-nombre" id="nb-hors_ligne">0</span>
+                    <span class="tuile-nom"><i class="pastille hors-ligne"></i>Hors ligne</span>
+                </button>
+            </div>
 
-        <label class="case" id="case-suivi" hidden>
-            <input type="checkbox" id="suivre" checked> Centrer la carte sur mon camion
-        </label>
+            <label for="recherche" class="visuel-cache">Rechercher</label>
+            <input type="search" id="recherche" class="recherche" maxlength="100"
+                   placeholder="Camion, plaque ou conducteur…" autocomplete="off" spellcheck="false">
+            <p id="filtre-actif" class="filtre-actif" hidden>
+                <span id="filtre-texte"></span>
+                <button type="button" id="filtre-effacer" class="lien">Tout afficher</button>
+            </p>
+
+            <ul id="liste-camions" class="liste-camions"></ul>
+            <p id="liste-vide" class="vide" hidden>Aucun camion ne correspond.</p>
+        </section>
+
+        <!-- Vue conducteur : uniquement son camion, en grand -->
+        <section id="vue-conducteur" class="tableau-bord" hidden>
+            <div class="tb-entete">
+                <div>
+                    <div class="tb-camion" id="tb-camion"></div>
+                    <div class="tb-immat" id="tb-immat"></div>
+                </div>
+                <span id="tb-etat" class="badge hors-ligne">-</span>
+            </div>
+            <div class="tb-vitesse">
+                <span id="tb-vitesse">-</span><small>km/h</small>
+            </div>
+            <dl class="tb-details">
+                <div><dt>Direction</dt><dd id="tb-direction">-</dd></div>
+                <div><dt>Dernier message</dt><dd id="tb-recu">-</dd></div>
+                <div><dt>Trajet récent</dt><dd id="tb-trajet">-</dd></div>
+                <div><dt>Position</dt><dd id="tb-position">-</dd></div>
+            </dl>
+            <p id="tb-vide" class="vide" hidden>Votre camion n'a encore envoyé aucune position.</p>
+            <label class="case">
+                <input type="checkbox" id="suivre" checked> Suivre mon camion sur la carte
+            </label>
+        </section>
 
         <label for="duree-trace" class="choix-trace">Trajet affiché</label>
         <select id="duree-trace">

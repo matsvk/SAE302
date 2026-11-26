@@ -72,6 +72,12 @@ async function chargerCompte() {
     if (role) {
         role.textContent = moi.role === "gestionnaire" ? "Gestionnaire" : "Conducteur · " + moi.camion_id;
     }
+    // lien "Conducteurs" seulement pour le gestionnaire (la page est de toute
+    // façon refusée par le serveur à un conducteur)
+    const lien = document.getElementById("lien-conducteurs");
+    if (lien) {
+        lien.hidden = moi.role !== "gestionnaire";
+    }
     const avatar = document.getElementById("avatar");
     if (avatar) {
         avatar.textContent = moi.email.charAt(0).toUpperCase();   // initiale de l'e-mail

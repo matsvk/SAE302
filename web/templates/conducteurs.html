@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Conducteurs - Suivi de flotte</title>
+    <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="/static/js/commun.js" defer></script>
+    <script src="/static/js/conducteurs.js" defer></script>
+</head>
+<body>
+<header class="barre">
+    <div class="logo"><img class="logo-icone" src="/static/img/favicon.svg" alt=""> Suivi de flotte</div>
+    <nav>
+        <a href="/carte">Carte</a>
+        <a href="/conducteurs" id="lien-conducteurs" class="actif" aria-current="page">Conducteurs</a>
+    </nav>
+    <div class="compte">
+        <div class="compte-texte"><b id="utilisateur"></b><span id="role"></span></div>
+        <div class="avatar" id="avatar" aria-hidden="true"></div>
+        <button type="button" id="deconnexion" class="secondaire">Déconnexion</button>
+    </div>
+</header>
+
+<main class="page page-large">
+    <div class="entete-page">
+        <div>
+            <h1>Conducteurs</h1>
+            <p class="sous-titre">Chaque conducteur ne voit que le camion qui lui est attribué.</p>
+        </div>
+        <a href="/inscription" class="bouton">+ Nouveau conducteur</a>
+    </div>
+
+    <div class="resume" aria-label="Résumé">
+        <div class="resume-bloc">
+            <span class="resume-nombre" id="nb-conducteurs">-</span>
+            <span class="resume-nom">conducteurs</span>
+        </div>
+        <div class="resume-bloc">
+            <span class="resume-nombre" id="nb-gestionnaires">-</span>
+            <span class="resume-nom">gestionnaires</span>
+        </div>
+        <div class="resume-bloc">
+            <span class="resume-nombre" id="nb-sans-conducteur">-</span>
+            <span class="resume-nom">camions sans conducteur</span>
+            <span class="resume-detail" id="liste-sans-conducteur"></span>
+        </div>
+    </div>
+
+    <div class="panneau">
+        <div class="outils">
+            <label for="recherche" class="visuel-cache">Rechercher un compte</label>
+            <input type="search" id="recherche" class="recherche" maxlength="100"
+                   placeholder="Rechercher un e-mail ou un camion…" autocomplete="off" spellcheck="false">
+        </div>
+        <p id="message" class="message" role="status" hidden></p>
+        <div class="tableau-defilant">
+            <table class="tableau" id="table-conducteurs">
+                <thead>
+                    <tr>
+                        <th scope="col">Compte</th>
+                        <th scope="col">Rôle</th>
+                        <th scope="col">Camion attribué</th>
+                        <th scope="col">État du camion</th>
+                    </tr>
+                </thead>
+                <tbody id="lignes"></tbody>
+            </table>
+        </div>
+        <p id="vide" class="vide" hidden>Aucun compte ne correspond.</p>
+    </div>
+</main>
+</body>
+</html>

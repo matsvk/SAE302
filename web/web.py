@@ -35,6 +35,7 @@ Pages (Phase 5) : HTML + JavaScript dans web/templates/ et web/static/, qui appe
     GET  /                 -> /carte si connecté, sinon /connexion
     GET  /connexion        page de connexion (tout le monde)
     GET  /inscription      création d'un compte conducteur (gestionnaire seulement)
+    GET  /conducteurs      liste des comptes, camion de chaque conducteur (gestionnaire seulement)
     GET  /carte            page d'accueil après connexion : carte Leaflet, marqueurs et
                            trajets, mis à jour toutes les 3 s (/api/camions + /api/positions)
 Les droits des pages sont vérifiés ici, côté serveur : un conducteur qui tape
@@ -481,14 +482,23 @@ def creer_app(conf):
             return redirect("/carte")
         return render_template("connexion.html")
 
-    @app.get("/inscription")
-    def page_inscription():
+    def page_gestionnaire(gabarit):
+        """Page réservée au gestionnaire : un conducteur est renvoyé vers la carte
+        sans jamais recevoir le HTML (qui de toute façon ne contient aucune donnée)."""
         if g.utilisateur is None:
             return redirect("/connexion")
         if g.utilisateur["role"] != "gestionnaire":
-            log.warning("accès refusé : %s (conducteur) -> page /inscription", g.utilisateur["email"])
+            log.warning("accès refusé : %s (conducteur) -> page %s", g.utilisateur["email"], request.path)
             return redirect("/carte")
-        return render_template("inscription.html")
+        return render_template(gabarit)
+
+    @app.get("/inscription")
+    def page_inscription():
+        return page_gestionnaire("inscription.html")
+
+    @app.get("/conducteurs")
+    def page_conducteurs():
+        return page_gestionnaire("conducteurs.html")
 
     @app.get("/carte")
     def page_carte():

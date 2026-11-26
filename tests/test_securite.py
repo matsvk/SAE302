@@ -50,6 +50,9 @@ NOM_COOKIE = "flotte_session"
 FUITE = re.compile(r"Traceback|pymysql|mysql|mariadb|SQL syntax|IntegrityError|"
                    r"OperationalError|File \"", re.IGNORECASE)
 
+# pages réservées au gestionnaire, et une marque qui n'existe que dans chacune
+PAGES_GESTIONNAIRE = [("/conducteurs", 'id="table-conducteurs"'), ("/inscription", 'id="confirmation"')]
+
 INJECTIONS_EMAIL = [
     "' OR '1'='1",
     "' OR 1=1 -- ",
@@ -307,6 +310,16 @@ def _tests(url, b, email, mdp, uid, mon_camion, autre_camion, max_echecs,
         r = anonyme.get(chemin)
         b.verifier(f"sans connexion : GET {chemin} -> 401", r.statut == 401, r)
 
+    # Pages HTML réservées : sans connexion, on doit être renvoyé vers /connexion
+    # sans recevoir la page (on cherche une marque propre à chaque page)
+    for chemin, marque in PAGES_GESTIONNAIRE:
+        r = anonyme.get(chemin)
+        b.verifier(f"sans connexion : page {chemin} -> non envoyée", marque not in r.texte,
+                   "renvoyé vers /connexion" if "<title>Connexion" in r.texte else r)
+    r = anonyme.get("/carte")
+    b.verifier("sans connexion : page /carte -> non envoyée", 'id="carte"' not in r.texte,
+               "renvoyé vers /connexion" if "<title>Connexion" in r.texte else r)
+
     conducteur = Client(url)
     r = conducteur.connexion(email("conducteur"), mdp)
     set_cookie = " ".join(r.entetes.get_all("Set-Cookie") or [])
@@ -379,6 +392,11 @@ def _tests(url, b, email, mdp, uid, mon_camion, autre_camion, max_echecs,
 
     r = conducteur.get("/api/utilisateurs")
     b.verifier("liste des comptes -> 403 (réservé gestionnaire)", r.statut == 403, r)
+    for chemin, marque in PAGES_GESTIONNAIRE:
+        r = conducteur.get(chemin)
+        b.verifier(f"page {chemin} (gestionnaire) -> non envoyée au conducteur",
+                   r.statut == 200 and marque not in r.texte and 'id="carte"' in r.texte,
+                   "renvoyé vers /carte" if 'id="carte"' in r.texte else r)
     r = conducteur.post("/api/utilisateurs", {"email": email("cree-par-conducteur"),
                                               "mot_de_passe": mdp, "camion_id": autre_camion})
     b.verifier(f"créer un compte conducteur de {autre_camion} -> 403", r.statut == 403, r)
@@ -453,6 +471,14 @@ def _tests(url, b, email, mdp, uid, mon_camion, autre_camion, max_echecs,
     role = next((u.get("role") for u in (liste.json or []) if u.get("email") == email("role")), None)
     b.verifier("champ « role: gestionnaire » ajouté à la création -> ignoré (conducteur)",
                r.statut == 201 and role == "conducteur", f"rôle enregistré : {role}")
+
+    for chemin, marque in PAGES_GESTIONNAIRE:
+        r = gestionnaire.get(chemin)
+        b.verifier(f"page {chemin} -> envoyée au gestionnaire", r.statut == 200 and marque in r.texte, r)
+    r = gestionnaire.get("/carte")
+    csp = r.entetes.get("Content-Security-Policy", "")
+    b.verifier("pages : CSP sans script ni style écrit dans le HTML",
+               "script-src 'self'" in csp and "unsafe-inline" not in csp, csp[:90])
 
     r = gestionnaire.get("/api/camions")
     b.verifier(f"le gestionnaire voit toute la flotte ({nb_camions} camions)",

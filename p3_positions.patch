@@ -1,0 +1,464 @@
+diff --git a/tests/test_securite.py b/tests/test_securite.py
+index 48f06d7..60a203c 100644
+--- a/tests/test_securite.py
++++ b/tests/test_securite.py
+@@ -133,6 +133,13 @@ class Client:
+         return self.post("/api/connexion", {"email": email, "mot_de_passe": mdp})
+ 
+ 
++def camions_des_positions(r):
++    """Réponse de /api/positions -> ensemble des camions présents (None si pas une réponse valide)."""
++    if r.statut != 200 or not isinstance(r.json, dict) or not isinstance(r.json.get("positions"), list):
++        return None
++    return {p.get("camion_id") for p in r.json["positions"]}
++
++
+ def chemin_camion(camion_id, suite="/positions"):
+     return f"/api/camions/{urllib.parse.quote(camion_id, safe='')}{suite}"
+ 
+@@ -295,7 +302,8 @@ def _tests(url, b, email, mdp, uid, mon_camion, autre_camion, max_echecs,
+     b.section("2. Sans session, session falsifiée ou volée")
+     # =====================================================================
+     anonyme = Client(url)
+-    for chemin in ("/api/moi", "/api/camions", chemin_camion(mon_camion), "/api/utilisateurs"):
++    for chemin in ("/api/moi", "/api/camions", chemin_camion(mon_camion), "/api/positions",
++                   "/api/utilisateurs"):
+         r = anonyme.get(chemin)
+         b.verifier(f"sans connexion : GET {chemin} -> 401", r.statut == 401, r)
+ 
+@@ -348,6 +356,13 @@ def _tests(url, b, email, mdp, uid, mon_camion, autre_camion, max_echecs,
+     b.verifier(f"/api/camions?camion_id={autre_camion} : paramètre ignoré",
+                vus == [mon_camion], f"camions reçus : {vus}")
+ 
++    for suite, nom in (("", ""), (f"&camion_id={autre_camion}", f" (avec ?camion_id={autre_camion})")):
++        r = conducteur.get("/api/positions?minutes=1440" + suite)
++        vus = camions_des_positions(r)
++        b.verifier(f"/api/positions : seulement {mon_camion}{nom}",
++                   r.statut == 200 and vus is not None and vus <= {mon_camion},
++                   f"camions reçus : {sorted(vus) if vus is not None else r}")
++
+     r = conducteur.get(chemin_camion(mon_camion))
+     b.verifier(f"historique de {mon_camion} (son camion) -> 200", r.statut == 200, r)
+     r = conducteur.get(chemin_camion(autre_camion))
+@@ -398,10 +413,29 @@ def _tests(url, b, email, mdp, uid, mon_camion, autre_camion, max_echecs,
+         r = conducteur.get(chemin_camion(mon_camion, "/positions?minutes=" + urllib.parse.quote(piege)))
+         b.verifier(f"paramètre minutes={piege!r} -> 400", r.statut == 400, r)
+ 
++    for nom, piege in (("minutes", "10 OR 1=1"), ("minutes", "10)--"), ("apres", "0 OR 1=1"),
++                       ("apres", "-1"), ("apres", "1;DROP TABLE positions")):
++        r = conducteur.get(f"/api/positions?{nom}=" + urllib.parse.quote(piege))
++        b.verifier(f"/api/positions?{nom}={piege!r} -> 400", r.statut == 400, r)
++
+     gestionnaire = Client(url)
+     r = gestionnaire.connexion(email("gestionnaire"), mdp)
+     b.verifier("le gestionnaire de test se connecte", r.statut == 200, r)
+ 
++    # Le filtre de /api/positions sert-il vraiment ? Seulement vérifiable s'il y a des
++    # positions récentes d'un autre camion (simulateur lancé) : sinon avertissement.
++    vus_gestionnaire = camions_des_positions(gestionnaire.get("/api/positions?minutes=1440")) or set()
++    vus_conducteur = camions_des_positions(conducteur.get("/api/positions?minutes=1440")) or set()
++    autres = vus_gestionnaire - {mon_camion}
++    if autres:
++        b.verifier(f"/api/positions : le gestionnaire voit {len(vus_gestionnaire)} camion(s), "
++                   f"le conducteur aucun autre que {mon_camion}",
++                   not (vus_conducteur & autres), f"gestionnaire : {sorted(vus_gestionnaire)}, "
++                   f"conducteur : {sorted(vus_conducteur)}")
++    else:
++        b.verifier("/api/positions : positions récentes d'autres camions pour comparer", False,
++                   "aucune sur 24 h : lancer le simulateur pour que ce test compte", optionnel=True)
++
+     email_piege = email("x');DROP/**/TABLE/**/utilisateurs;--")
+     r = gestionnaire.post("/api/utilisateurs", {"email": email_piege, "mot_de_passe": mdp,
+                                                 "camion_id": mon_camion})
+@@ -438,9 +472,10 @@ def _tests(url, b, email, mdp, uid, mon_camion, autre_camion, max_echecs,
+         cnx.close()
+     b.verifier("les tables existent toujours (camions, positions, utilisateurs)",
+                {"camions", "positions", "utilisateurs"} <= set(tables), ", ".join(tables))
+-    b.verifier("camions et positions n'ont pas été modifiés",
+-               tuple(apres) == (nb_camions, nb_positions),
+-               f"avant {nb_camions}/{nb_positions}, après {apres[0]}/{apres[1]}")
++    # (des positions peuvent s'AJOUTER pendant le test si le simulateur tourne)
++    b.verifier("camions inchangés et aucune position supprimée",
++               apres[0] == nb_camions and apres[1] >= nb_positions,
++               f"camions {nb_camions} -> {apres[0]}, positions {nb_positions} -> {apres[1]}")
+ 
+     # =====================================================================
+     b.section("5. Rien ne fuit dans les réponses")
+diff --git a/web/static/css/style.css b/web/static/css/style.css
+index db2d8e1..9c70c4c 100644
+--- a/web/static/css/style.css
++++ b/web/static/css/style.css
+@@ -511,6 +511,33 @@ button.secondaire:hover {
+     min-width: 0;
+ }
+ 
++/* trajet récent d'un camion (Phase 5 P3) : trait SVG dessiné par Leaflet */
++.choix-trace {
++    margin-top: 18px;
++}
++
++.trace {
++    stroke: #1f4f8f;
++    stroke-width: 4;
++    stroke-opacity: 0.55;
++    stroke-linecap: round;
++    stroke-linejoin: round;
++    fill: none;
++}
++
++.trace.trace-hors-ligne {
++    stroke: #a0a7b4;
++}
++
++.trait-legende {
++    display: inline-block;
++    width: 18px;
++    height: 4px;
++    border-radius: 2px;
++    background: #1f4f8f;
++    opacity: 0.55;
++}
++
+ /* marqueur d'un camion : pastille + flèche de direction + nom */
+ .icone-camion {
+     background: none;
+diff --git a/web/static/js/carte.js b/web/static/js/carte.js
+index 965a102..35b475c 100644
+--- a/web/static/js/carte.js
++++ b/web/static/js/carte.js
+@@ -1,14 +1,21 @@
+ /*
+- * carte.js - Phase 5 P2 : carte Leaflet avec les marqueurs des camions.
++ * carte.js - Phase 5 P2 et P3 : carte Leaflet des camions, mise à jour toutes les 3 s.
+  *
+- * Toutes les 3 s, la page demande GET /api/camions, qui renvoie la dernière
+- * position de chaque camion VISIBLE par le compte connecté :
++ * Toutes les 3 s, la page interroge l'API, qui ne renvoie que les camions
++ * VISIBLES par le compte connecté :
+  *   - gestionnaire : toute la flotte ;
+  *   - conducteur   : uniquement son camion (le filtre est fait par le serveur,
+  *                    dans la requête SQL : rien n'est caché côté navigateur).
+- * Chaque camion a un marqueur dont la couleur dépend de son état, avec une
+- * flèche tournée dans sa direction (cap). Un camion dont le serveur n'a rien
+- * reçu depuis 30 s est affiché "hors ligne" (grisé).
++ *
++ * P2 - GET /api/camions : dernière position de chaque camion. Chaque camion a un
++ * marqueur dont la couleur dépend de son état, avec une flèche tournée dans sa
++ * direction (cap). Un camion dont le serveur n'a rien reçu depuis 30 s est
++ * affiché "hors ligne" (grisé).
++ *
++ * P3 - GET /api/positions : trajet récent de chaque camion (trait sur la carte).
++ * Le premier appel charge les N dernières minutes ; ensuite la page envoie
++ * ?apres=<dernier_id> et ne reçoit que les nouvelles positions, qu'elle ajoute
++ * au bout du trait. Les points plus vieux que N minutes sont retirés.
+  *
+  * Sécurité : les textes venus du serveur sont toujours affichés avec
+  * textContent (jamais innerHTML), y compris dans les marqueurs et les bulles.
+@@ -20,6 +27,8 @@ const PERIODE_MS = 3000;          // même rythme que l'envoi des camions
+ const HORS_LIGNE_S = 30;          // même valeur que delai_silence du serveur UDP
+ const CENTRE_DEPART = [48.86, 2.35];   // Paris, avant la première position
+ const ZOOM_DEPART = 10;
++const DUREE_TRACE_DEFAUT = 10;    // minutes de trajet affichées (0 = aucun)
++const MAX_APPELS_POSITIONS = 10;  // si l'historique est long, il arrive en plusieurs morceaux
+ 
+ const NOMS_ETATS = {
+     a_quai: "À quai",
+@@ -34,6 +43,12 @@ const marqueurs = {};             // id du camion -> marqueur Leaflet
+ let premierCadrage = true;        // cadrer la carte sur les camions au 1er chargement
+ let camionChoisi = null;          // camion cliqué dans la liste (gestionnaire)
+ 
++const traces = {};                // id du camion -> {ligne: trait Leaflet, points: [{t, lat, lon}]}
++let dernierId = 0;                // curseur de /api/positions : dernière ligne déjà reçue
++let minutesTrace = DUREE_TRACE_DEFAUT;
++let generationTraces = 0;         // change à chaque remise à zéro (réponses en retard ignorées)
++let camionsConnus = null;         // ids des camions visibles au rafraîchissement précédent
++
+ // ---------------------------------------------------------------------------
+ // Petites fonctions d'affichage
+ // ---------------------------------------------------------------------------
+@@ -164,6 +179,88 @@ function retirerAbsents(ids) {
+     }
+ }
+ 
++// ---------------------------------------------------------------------------
++// Trajets (Phase 5 P3)
++// ---------------------------------------------------------------------------
++
++/** Efface tous les trajets ; le prochain rafraîchissement les recharge en entier. */
++function viderTraces() {
++    for (const id of Object.keys(traces)) {
++        carte.removeLayer(traces[id].ligne);
++        delete traces[id];
++    }
++    dernierId = 0;
++    generationTraces += 1;
++}
++
++function ajouterPoint(p) {
++    let trace = traces[p.camion_id];
++    if (trace === undefined) {
++        trace = {
++            points: [],
++            ligne: L.polyline([], { className: "trace", interactive: false }).addTo(carte),
++        };
++        traces[p.camion_id] = trace;
++    }
++    const point = { t: Date.parse(p.horodatage), lat: Number(p.lat), lon: Number(p.lon) };
++    // presque toujours à la fin ; sinon (message arrivé en retard) à sa place
++    let i = trace.points.length;
++    while (i > 0 && trace.points[i - 1].t > point.t) {
++        i -= 1;
++    }
++    trace.points.splice(i, 0, point);
++}
++
++/** Demande les nouvelles positions à l'API. Renvoie le statut HTTP (200 si tout va bien). */
++async function chargerTraces() {
++    const generation = generationTraces;
++    for (let appel = 0; appel < MAX_APPELS_POSITIONS; appel++) {
++        const r = await api("GET", "/api/positions?minutes=" + minutesTrace + "&apres=" + dernierId);
++        if (generation !== generationTraces) {
++            return 200;                      // réglage changé entre-temps : réponse périmée
++        }
++        if (r.statut !== 200 || !Array.isArray(r.donnees.positions)) {
++            return r.statut;
++        }
++        for (const p of r.donnees.positions) {
++            ajouterPoint(p);
++        }
++        dernierId = r.donnees.dernier_id;
++        if (r.donnees.complet) {
++            break;
++        }
++    }
++    return 200;
++}
++
++/** Coupe les trajets à N minutes et met à jour les traits sur la carte. */
++function dessinerTraces(camionsParId) {
++    const duree = minutesTrace * 60 * 1000;
++    for (const id of Object.keys(traces)) {
++        const trace = traces[id];
++        if (trace.points.length > 0) {
++            // N minutes avant la position la plus récente du camion (son horodatage à lui :
++            // reste juste si le simulateur est accéléré ou si l'horloge du PC est fausse)
++            const limite = trace.points[trace.points.length - 1].t - duree;
++            let debut = 0;
++            while (debut < trace.points.length && trace.points[debut].t < limite) {
++                debut += 1;
++            }
++            trace.points.splice(0, debut);
++        }
++        trace.ligne.setLatLngs(trace.points.map(function (p) { return [p.lat, p.lon]; }));
++        const camion = camionsParId[id];
++        const trait = trace.ligne.getElement();
++        if (trait) {
++            trait.classList.toggle("trace-hors-ligne", !camion || estHorsLigne(camion));
++        }
++    }
++}
++
++function memesCamions(a, b) {
++    return a.size === b.size && [...a].every(function (id) { return b.has(id); });
++}
++
+ // ---------------------------------------------------------------------------
+ // Liste à gauche
+ // ---------------------------------------------------------------------------
+@@ -271,6 +368,32 @@ async function rafraichir() {
+     retirerAbsents(new Set(avecPosition.map(function (c) { return c.camion_id; })));
+     afficherListe(camions);
+     cadrer(avecPosition);
++
++    // Trajets. Si les camions visibles ont changé (conducteur rattaché à un autre
++    // camion, camion ajouté...), on recharge tout depuis le début.
++    const ids = new Set(camions.map(function (c) { return c.camion_id; }));
++    if (camionsConnus !== null && !memesCamions(ids, camionsConnus)) {
++        viderTraces();
++    }
++    camionsConnus = ids;
++    if (minutesTrace > 0) {
++        const statut = await chargerTraces();
++        if (statut === 401) {
++            window.location.href = "/connexion";
++            return;
++        }
++        if (statut !== 200) {
++            bandeau.textContent = statut === 0
++                ? "Serveur injoignable, nouvel essai dans 3 s…"
++                : "Trajets indisponibles (erreur " + statut + "), nouvel essai dans 3 s…";
++            bandeau.hidden = false;
++        }
++        const parId = {};
++        for (const c of camions) {
++            parId[c.camion_id] = c;
++        }
++        dessinerTraces(parId);
++    }
+     document.getElementById("maj").textContent =
+         "Mise à jour toutes les 3 s · dernière à " + new Date().toLocaleTimeString("fr-FR");
+ }
+@@ -309,6 +432,27 @@ async function boucle() {
+         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+     }).addTo(carte);
+ 
++    // Durée du trajet affiché : gardée dans le navigateur pour la prochaine visite
++    const choix = document.getElementById("duree-trace");
++    try {
++        const memorise = window.localStorage.getItem("duree-trace");
++        if (memorise !== null && [...choix.options].some(function (o) { return o.value === memorise; })) {
++            choix.value = memorise;
++        }
++    } catch (e) {
++        // stockage indisponible (navigation privée...) : on garde la valeur par défaut
++    }
++    minutesTrace = Number(choix.value);
++    choix.addEventListener("change", function () {
++        minutesTrace = Number(choix.value);
++        viderTraces();                       // rechargé au prochain rafraîchissement (3 s max)
++        try {
++            window.localStorage.setItem("duree-trace", choix.value);
++        } catch (e) {
++            // tant pis, le choix ne sera pas retenu
++        }
++    });
++
+     // si l'utilisateur déplace la carte lui-même, on arrête de la recentrer
+     carte.on("dragstart", function () {
+         if (compte.role === "conducteur") {
+diff --git a/web/templates/carte.html b/web/templates/carte.html
+index 019c90f..a4b9102 100644
+--- a/web/templates/carte.html
++++ b/web/templates/carte.html
+@@ -39,11 +39,20 @@
+             <input type="checkbox" id="suivre" checked> Centrer la carte sur mon camion
+         </label>
+ 
++        <label for="duree-trace" class="choix-trace">Trajet affiché</label>
++        <select id="duree-trace">
++            <option value="0">Aucun</option>
++            <option value="10" selected>10 dernières minutes</option>
++            <option value="30">30 dernières minutes</option>
++            <option value="60">Dernière heure</option>
++        </select>
++
+         <div class="legende" aria-label="Légende">
+             <span><i class="pastille etat-en_route"></i>En route</span>
+             <span><i class="pastille etat-livraison"></i>Livraison</span>
+             <span><i class="pastille etat-a_quai"></i>À quai</span>
+             <span><i class="pastille hors-ligne"></i>Hors ligne</span>
++            <span><i class="trait-legende"></i>Trajet récent</span>
+         </div>
+         <p class="aide" id="maj">Mise à jour toutes les 3 s.</p>
+     </aside>
+diff --git a/web/web.py b/web/web.py
+index ac6453f..fff3b82 100644
+--- a/web/web.py
++++ b/web/web.py
+@@ -22,6 +22,8 @@ Routes (tout en JSON) :
+     GET  /api/moi
+     GET  /api/camions                         dernière position des camions visibles
+     GET  /api/camions/<id>/positions?minutes=60
++    GET  /api/positions?minutes=10&apres=0    positions récentes des camions visibles
++                                              (trajets sur la carte, mis à jour toutes les 3 s)
+     GET  /api/utilisateurs                    (gestionnaire)
+     POST /api/utilisateurs                    (gestionnaire) {"email", "mot_de_passe", "camion_id"}
+     PUT  /api/utilisateurs/<id>/camion        (gestionnaire) {"camion_id"}
+@@ -33,7 +35,8 @@ Pages (Phase 5) : HTML + JavaScript dans web/templates/ et web/static/, qui appe
+     GET  /                 -> /carte si connecté, sinon /connexion
+     GET  /connexion        page de connexion (tout le monde)
+     GET  /inscription      création d'un compte conducteur (gestionnaire seulement)
+-    GET  /carte            page d'accueil après connexion (carte Leaflet : étape suivante)
++    GET  /carte            page d'accueil après connexion : carte Leaflet, marqueurs et
++                           trajets, mis à jour toutes les 3 s (/api/camions + /api/positions)
+ Les droits des pages sont vérifiés ici, côté serveur : un conducteur qui tape
+ /inscription est renvoyé vers /carte sans jamais recevoir la page.
+ 
+@@ -64,6 +67,7 @@ from web.comptes import ErreurInscription
+ log = logging.getLogger("web")
+ 
+ FORMAT_CAMION = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
++MAX_POSITIONS = 5000        # positions renvoyées au plus par /api/positions (la suite au prochain appel)
+ 
+ DEFAUTS = {
+     "ecoute": {"hote": "127.0.0.1", "port": 8080},
+@@ -213,6 +217,17 @@ def creer_app(conf):
+                 raise ErreurApi(400, f"champ « {champ} » manquant")
+         return donnees
+ 
++    def parametre_entier(nom, defaut, mini, maxi):
++        """Paramètre d'URL (?nom=...) qui doit être un entier entre mini et maxi.
++        Tout le reste ("10 OR 1=1", "1.5", "") est refusé avant d'arriver au SQL."""
++        texte = request.args.get(nom, str(defaut))
++        if not re.fullmatch(r"[0-9]{1,19}", texte):
++            raise ErreurApi(400, f"{nom} doit être un nombre entier")
++        valeur = int(texte)
++        if not mini <= valeur <= maxi:
++            raise ErreurApi(400, f"{nom} doit être entre {mini} et {maxi}")
++        return valeur
++
+     # -- P2 : qui est connecté ? ---------------------------------------------------
+ 
+     @app.before_request
+@@ -351,12 +366,7 @@ def creer_app(conf):
+             log.warning("accès refusé : %s (conducteur de %s) a demandé %s", g.utilisateur["email"],
+                         g.utilisateur["camion_id"], camion_id)
+             raise ErreurApi(403, "vous n'avez pas accès à ce camion")
+-        try:
+-            minutes = int(request.args.get("minutes", "60"))
+-        except ValueError:
+-            raise ErreurApi(400, "minutes doit être un nombre entier") from None
+-        if not 1 <= minutes <= 1440:
+-            raise ErreurApi(400, "minutes doit être entre 1 et 1440")
++        minutes = parametre_entier("minutes", 60, 1, 1440)
+         if sql("SELECT id FROM camions WHERE id = %s", (camion_id,), un=True) is None:
+             raise ErreurApi(404, "camion inconnu")
+         # dates en UTC dans la base : on compare avec UTC_TIMESTAMP()
+@@ -366,6 +376,47 @@ def creer_app(conf):
+         return jsonify({"camion_id": camion_id, "minutes": minutes,
+                         "positions": [ligne_json(l) for l in lignes]})
+ 
++    @app.get("/api/positions")
++    @connexion_requise
++    def positions():
++        """Phase 5 P3 : positions récentes de tous les camions VISIBLES par le compte,
++        pour tracer leur trajet sur la carte et le prolonger toutes les 3 s.
++
++            ?minutes=10  fenêtre de temps (1 à 1440), d'après l'horodatage des messages
++            ?apres=N     seulement les positions enregistrées après la ligne N
++
++        Rafraîchissement : la page renvoie à chaque appel le "dernier_id" reçu la
++        fois précédente. Le premier appel (apres=0) donne tout le trajet récent,
++        les suivants seulement les nouvelles positions : quelques lignes toutes les
++        3 s au lieu de tout l'historique. Si une réponse est coupée à MAX_POSITIONS
++        lignes, "complet" vaut false et la page redemande tout de suite la suite.
++
++        Filtrage selon le rôle DANS la requête SQL, comme /api/camions : la
++        condition sur le camion est ajoutée au texte SQL pour un conducteur, et sa
++        valeur vient de la base (son compte), jamais de l'URL. Un paramètre
++        ?camion_id=... ajouté par le conducteur est donc simplement ignoré."""
++        minutes = parametre_entier("minutes", 10, 1, 1440)
++        apres = parametre_entier("apres", 0, 0, 2 ** 63 - 1)
++
++        requete = ("SELECT id, camion_id, seq, horodatage, lat, lon, vitesse, cap, etat "
++                   "FROM positions WHERE id > %s "
++                   "AND horodatage >= UTC_TIMESTAMP(3) - INTERVAL %s MINUTE")
++        parametres = [apres, minutes]
++        if camions_visibles(g.utilisateur) is not None:          # conducteur
++            requete += " AND camion_id = %s"
++            parametres.append(g.utilisateur["camion_id"])
++        requete += " ORDER BY id LIMIT %s"
++        parametres.append(MAX_POSITIONS + 1)                     # +1 : pour savoir s'il en reste
++
++        lignes = sql(requete, parametres)
++        complet = len(lignes) <= MAX_POSITIONS
++        lignes = lignes[:MAX_POSITIONS]
++        dernier_id = lignes[-1]["id"] if lignes else apres
++        for l in lignes:
++            del l["id"]           # la page n'a besoin que du dernier, renvoyé à part
++        return jsonify({"minutes": minutes, "dernier_id": dernier_id, "complet": complet,
++                        "positions": [ligne_json(l) for l in lignes]})
++
+     # -- P3 : le gestionnaire lie chaque conducteur à son camion ----------------------------
+ 
+     @app.get("/api/utilisateurs")

@@ -2,9 +2,17 @@
 <html lang="fr">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Connexion - Suivi de flotte</title>
     <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+    <!-- Appli sur iPhone : installable depuis Safari (Partager > Sur l'écran d'accueil) -->
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/img/icone-180.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Flotte">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#ffffff">
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="/static/js/commun.js" defer></script>
     <script src="/static/js/connexion.js" defer></script>
@@ -30,6 +38,13 @@
 
             <button type="submit" id="bouton">Se connecter</button>
         </form>
+
+        <!-- affiché seulement sur iPhone/iPad dans Safari (voir connexion.js) -->
+        <div id="invite-installation" class="invite-installation" hidden>
+            <p>Sur iPhone : touchez <b>Partager</b> puis <b>Sur l'écran d'accueil</b>
+                pour utiliser le suivi de flotte comme une appli.</p>
+            <button type="button" id="fermer-invite" aria-label="Fermer">×</button>
+        </div>
 
         <p class="separation">Pas de compte ou mot de passe oublié ?<br>
             Contactez le gestionnaire de votre flotte.</p>

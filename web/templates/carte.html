@@ -2,9 +2,17 @@
 <html lang="fr">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Carte - Suivi de flotte</title>
     <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+    <!-- Appli sur iPhone : installable depuis Safari (Partager > Sur l'écran d'accueil) -->
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/img/icone-180.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Flotte">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#ffffff">
     <link rel="stylesheet" href="/static/lib/leaflet/leaflet.css">
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="/static/lib/leaflet/leaflet.js" defer></script>

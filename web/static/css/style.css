@@ -1034,6 +1034,85 @@ select.choix-camion {
     }
 }
 
+/* --- iPhone : le site utilisé comme une appli (écran d'accueil) --- */
+
+html {
+    -webkit-text-size-adjust: 100%;     /* pas de texte agrandi tout seul en paysage */
+}
+
+a,
+button,
+.camion {
+    -webkit-tap-highlight-color: rgba(31, 79, 143, 0.15);
+    touch-action: manipulation;          /* pas d'attente du « double-tap pour zoomer » */
+}
+
+/* Encoche et coins arrondis : en paysage, le contenu ne passe pas dessous */
+.barre {
+    padding-left: max(24px, env(safe-area-inset-left));
+    padding-right: max(24px, env(safe-area-inset-right));
+}
+
+/* Barre d'accueil en bas de l'iPhone (le trait noir) : on laisse sa place */
+body:not(.page-carte) {
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+.page-carte .disposition-carte {
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Sur iPad/iPhone en grand, 100vh compte aussi la barre de Safari :
+   dvh = hauteur vraiment visible (sur téléphone, la page défile : voir plus haut) */
+@media (min-width: 701px) {
+    .page-carte {
+        height: 100dvh;
+    }
+}
+
+.invite-installation {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    margin-top: 18px;
+    padding: 10px 12px;
+    font-size: 0.85em;
+    color: #1f3f6b;
+    background: #f2f6fb;
+    border: 1px solid #c9d9ee;
+    border-radius: 4px;
+}
+
+.invite-installation p {
+    margin: 0;
+    flex: 1;
+}
+
+.invite-installation button {
+    width: auto;
+    margin: 0;
+    padding: 0 6px;
+    color: #1f3f6b;
+    background: none;
+    border: none;
+    font-size: 1.2em;
+    line-height: 1;
+}
+
+@media (max-width: 700px) {
+    /* en dessous de 16 px, l'iPhone zoome tout seul quand on touche un champ */
+    input,
+    select,
+    textarea {
+        font-size: 16px;
+    }
+
+    .barre {
+        padding-left: max(16px, env(safe-area-inset-left));
+        padding-right: max(16px, env(safe-area-inset-right));
+    }
+}
+
 [hidden] {
     display: none !important;
 }

@@ -46,3 +46,35 @@ formulaire.addEventListener("submit", async function (evenement) {
     bouton.disabled = false;
     bouton.textContent = "Se connecter";
 });
+
+/*
+ * Invitation à installer l'appli sur iPhone / iPad.
+ * Affichée seulement dans Safari sur iOS, quand le site n'est pas DÉJÀ ouvert
+ * depuis l'écran d'accueil (navigator.standalone vaut alors true).
+ * Le choix « ne plus afficher » est gardé dans le navigateur (localStorage).
+ */
+(function () {
+    const invite = document.getElementById("invite-installation");
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent)
+        || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);   // iPad récents
+    const dejaInstallee = window.navigator.standalone === true
+        || window.matchMedia("(display-mode: standalone)").matches;
+    let masquee = false;
+    try {
+        masquee = localStorage.getItem("invite-installation") === "masquee";
+    } catch (e) {
+        // navigation privée : on affiche quand même
+    }
+    if (!ios || dejaInstallee || masquee) {
+        return;
+    }
+    invite.hidden = false;
+    document.getElementById("fermer-invite").addEventListener("click", function () {
+        invite.hidden = true;
+        try {
+            localStorage.setItem("invite-installation", "masquee");
+        } catch (e) {
+            // rien : l'invitation reviendra à la prochaine visite
+        }
+    });
+})();
